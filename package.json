@@ -1,0 +1,55 @@
+{
+  "name": "deepa-cli",
+  "version": "0.1.0",
+  "description": "Universal agentic CLI coding agent — supports OpenAI, Anthropic, local LLMs, MCP, plugins, and skills",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "deepa": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "cli",
+    "ai",
+    "agent",
+    "coding",
+    "llm",
+    "mcp",
+    "openai",
+    "anthropic"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@playwright/test": "^1.58.2",
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "cross-fetch": "^4.1.0",
+    "eventsource": "^4.1.0",
+    "find-up": "^8.0.0",
+    "glob": "^11.0.1",
+    "inquirer": "^12.4.2",
+    "marked": "^15.0.7",
+    "marked-terminal": "^7.3.0",
+    "ora": "^8.2.0",
+    "turndown": "^7.2.0",
+    "zod": "^3.24.2",
+    "zod-to-json-schema": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/eventsource": "^1.1.15",
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^22.13.5",
+    "@types/turndown": "^5.0.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  }
+}
