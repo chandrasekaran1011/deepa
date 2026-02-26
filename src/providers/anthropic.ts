@@ -58,6 +58,7 @@ export class AnthropicProvider implements LLMProvider {
         messages: Message[],
         tools?: ToolDefinition[],
         options?: ChatOptions,
+        signal?: AbortSignal,
     ): AsyncIterable<StreamChunk> {
         // Extract system prompt
         let systemPrompt = '';
@@ -99,6 +100,7 @@ export class AnthropicProvider implements LLMProvider {
                     'anthropic-version': ANTHROPIC_API_VERSION,
                 },
                 body: JSON.stringify(body),
+                signal,
             });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

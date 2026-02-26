@@ -13,7 +13,7 @@ function sleep(ms: number): Promise<void> {
     return new Promise((res) => setTimeout(res, ms));
 }
 
-/** Fetch with exponential backoff for 429 / 5xx responses. */
+/** Fetch with exponential backoff for 429 / 5xx responses. Supports abort signals. */
 async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (attempt > 0) {
@@ -57,6 +57,7 @@ export class OpenAIProvider implements LLMProvider {
         messages: Message[],
         tools?: ToolDefinition[],
         options?: ChatOptions,
+        signal?: AbortSignal,
     ): AsyncIterable<StreamChunk> {
         const body: Record<string, unknown> = {
             model: this.config.model,
@@ -89,6 +90,7 @@ export class OpenAIProvider implements LLMProvider {
                     ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
                 },
                 body: JSON.stringify(body),
+                signal,
             });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);

@@ -15,6 +15,7 @@ export interface LoopOptions {
     agentsMdContent?: string;
     memoryContent?: string;
     skillDescriptions?: string[];
+    signal?: AbortSignal;
     onText?: (text: string) => void;
     onToolCall?: (name: string, args: Record<string, unknown>) => void;
     onToolResult?: (name: string, result: string, isError: boolean) => void;
@@ -38,6 +39,7 @@ export async function runAgentLoop(
         agentsMdContent,
         memoryContent,
         skillDescriptions,
+        signal,
         onText,
         onToolCall,
         onToolResult,
@@ -83,14 +85,20 @@ export async function runAgentLoop(
     let totalCompletionTokens = 0;
 
     while (iterations < MAX_ITERATIONS) {
+        // Check abort before each iteration
+        if (signal?.aborted) {
+            messages.push({ role: 'assistant', content: '[Cancelled by user]' });
+            return messages.slice(1);
+        }
+
         iterations++;
 
         // Call LLM
         let fullText = '';
-        const pendingToolCalls: Array<{ id: string; name: string; arguments: string; parsedArgs: Record<string, unknown> }> = [];
+        const pendingToolCalls: Array<{ id: string; name: string; arguments: string; parsedArgs: Record<string, unknown>; parseError?: string }> = [];
 
         try {
-            for await (const chunk of provider.chat(messages, toolDefs)) {
+            for await (const chunk of provider.chat(messages, toolDefs, undefined, signal)) {
                 switch (chunk.type) {
                     case 'text':
                         fullText += chunk.text;
@@ -101,16 +109,32 @@ export async function runAgentLoop(
                         // Parse args once here — avoids duplicate JSON.parse below
                         {
                             let parsedArgs: Record<string, unknown>;
+                            let parseError: string | undefined;
                             try {
                                 parsedArgs = JSON.parse(chunk.arguments || '{}');
-                            } catch {
+                            } catch (parseErr) {
+                                const argLen = (chunk.arguments || '').length;
+                                if (config.verbose) {
+                                    const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+                                    const snippet = (chunk.arguments || '').slice(0, 200);
+                                    process.stderr.write(chalk.dim(
+                                        `[loop] JSON.parse failed for ${chunk.name}: ${errMsg}\n` +
+                                        `[loop] raw args (first 200 chars): ${snippet}\n`,
+                                    ));
+                                }
                                 parsedArgs = {};
+                                parseError = `Tool call arguments were truncated (${argLen} chars of JSON, likely cut off by token limit). ` +
+                                    `To fix: break the file into smaller chunks using file_write with append=true. ` +
+                                    `First call: file_write with the first portion (append=false). ` +
+                                    `Then call file_write with append=true for each remaining portion. ` +
+                                    `Alternatively, write a script that generates the content and run it with shell.`;
                             }
                             pendingToolCalls.push({
                                 id: chunk.id,
                                 name: chunk.name,
                                 arguments: chunk.arguments,
                                 parsedArgs,
+                                parseError,
                             });
                         }
                         break;
@@ -134,6 +158,16 @@ export async function runAgentLoop(
                 }
             }
         } catch (err) {
+            // Graceful abort — user pressed Escape
+            if (signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+                if (fullText) {
+                    messages.push({ role: 'assistant', content: fullText + '\n\n[Cancelled by user]' });
+                } else {
+                    messages.push({ role: 'assistant', content: '[Cancelled by user]' });
+                }
+                return messages.slice(1);
+            }
+
             const msg = err instanceof Error ? err.message : String(err);
             process.stderr.write(chalk.red(`\nLLM Stream Error: ${msg}\n`));
 
@@ -171,9 +205,20 @@ export async function runAgentLoop(
         const toolResults: ToolResultContent[] = [];
 
         for (const tc of pendingToolCalls) {
+            // Check abort before each tool execution
+            if (signal?.aborted) {
+                return messages.slice(1);
+            }
+
             onToolCall?.(tc.name, tc.parsedArgs);
 
-            const result = await tools.execute(tc.name, tc.parsedArgs, toolContext);
+            let result;
+            if (tc.parseError) {
+                // Don't send empty params to registry — give the LLM actionable feedback
+                result = { content: `Error: ${tc.parseError}`, isError: true as const };
+            } else {
+                result = await tools.execute(tc.name, tc.parsedArgs, toolContext);
+            }
 
             onToolResult?.(tc.name, result.content, result.isError ?? false);
 

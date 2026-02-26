@@ -15,5 +15,6 @@ export interface LLMProvider {
         messages: Message[],
         tools?: ToolDefinition[],
         options?: ChatOptions,
+        signal?: AbortSignal,
     ): AsyncIterable<StreamChunk>;
 }
