@@ -11,6 +11,7 @@ import { loadAgentsMd } from './context/agents-md.js';
 import { loadMemory } from './context/memory.js';
 import { createSession, saveSession, loadLatestSession, type Session } from './context/history.js';
 import { loadSkills } from './plugins/skills.js';
+import { createUseSkillTool } from './tools/use-skill.js';
 import { connectMCPServers, disconnectMCPServers, type MCPConnection } from './mcp/client.js';
 import {
     addModel, removeModel, listModels, setDefaultModel, getModel,
@@ -33,6 +34,7 @@ import {
     confirmAction,
     startSpinner,
     stopSpinner,
+    listenForEscape,
 } from './ui/renderer.js';
 import type { Message, AgentMode } from './types.js';
 
@@ -236,8 +238,8 @@ async function addModelInteractive(): Promise<void> {
         }
     }
 
-    const maxTokensStr = await promptUser('  Max tokens [4096]: ');
-    const maxTokens = maxTokensStr ? parseInt(maxTokensStr) : 4096;
+    const maxTokensStr = await promptUser('  Max tokens [16384]: ');
+    const maxTokens = maxTokensStr ? parseInt(maxTokensStr) : 16384;
 
     const makeDefault = await promptUser('  Set as default? (y/n) [y]: ');
     const isDefault = !makeDefault || makeDefault.toLowerCase().startsWith('y');
@@ -306,8 +308,13 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
     // Load context
     const agentsMdContent = loadAgentsMd(cwd);
     const memoryContent = loadMemory(cwd);
-    const skills = loadSkills(cwd);
-    const skillDescriptions = skills.map((s) => `${s.name}: ${s.description}`);
+    const skillRegistry = loadSkills(cwd);
+    const skillDescriptions = skillRegistry.getDescriptions();
+
+    // Register use_skill tool if skills exist (progressive disclosure)
+    if (skillRegistry.size > 0) {
+        tools.register(createUseSkillTool(skillRegistry));
+    }
 
     // Session
     let session: Session;
@@ -339,14 +346,17 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
         printInfo(`resumed session  ·  ${session.messages.length} messages`);
     }
     if (agentsMdContent) printInfo('AGENTS.md loaded');
-    if (memoryContent)   printInfo('memory loaded');
-    if (skills.length > 0) printInfo(`${skills.length} skill${skills.length > 1 ? 's' : ''} loaded`);
+    if (memoryContent) printInfo('memory loaded');
+    if (skillRegistry.size > 0) printInfo(`${skillRegistry.size} skill${skillRegistry.size > 1 ? 's' : ''} loaded`);
 
     let currentMode = config.mode;
     let conversationHistory: Message[] = session.messages;
 
     // Handle initial prompt or interactive mode
     const processMessage = async (userInput: string): Promise<void> => {
+        // Listen for Escape key to cancel the current operation
+        const { controller, cleanup } = listenForEscape();
+
         startSpinner('thinking…');
         let streamedText = '';
 
@@ -360,6 +370,7 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                 agentsMdContent,
                 memoryContent,
                 skillDescriptions,
+                signal: controller.signal,
                 confirmAction,
                 onText: (text) => {
                     stopSpinner();
@@ -387,7 +398,11 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
             saveSession(session);
         } catch (err) {
             stopSpinner();
-            printError(err instanceof Error ? err.message : String(err));
+            if (!controller.signal.aborted) {
+                printError(err instanceof Error ? err.message : String(err));
+            }
+        } finally {
+            cleanup();
         }
     };
 
@@ -551,6 +566,24 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                         printInfo(`autonomy → ${args[0]}`);
                     } else {
                         printInfo(`autonomy: ${config.autonomy}  ·  options: suggest · ask · auto`);
+                    }
+                    break;
+
+                case 'skills':
+                    if (skillRegistry.size > 0) {
+                        console.log(chalk.bold('\n  Available Skills:\n'));
+                        for (const skill of skillRegistry.list()) {
+                            console.log(`  ${chalk.hex('#F59E0B')('⚡')} ${chalk.cyan.bold(skill.name)}`);
+                            if (skill.description) {
+                                console.log(chalk.dim(`    ${skill.description}`));
+                            }
+                            if (skill.trigger) {
+                                console.log(chalk.dim(`    trigger: /${skill.trigger}/i`));
+                            }
+                            console.log('');
+                        }
+                    } else {
+                        console.log(chalk.dim('  No skills loaded. Add SKILL.md files to .deepa/skills/ or .agents/skills/'));
                     }
                     break;
 

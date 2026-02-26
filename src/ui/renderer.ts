@@ -2,7 +2,7 @@
 
 import chalk from 'chalk';
 import ora, { type Ora } from 'ora';
-import { createInterface } from 'readline';
+import { createInterface, emitKeypressEvents } from 'readline';
 
 // ─── Colour palette ───────────────────────────────────────
 
@@ -151,7 +151,7 @@ export function printHeader(): void {
     console.log();
 
     // Keyboard hints
-    const hint = 'ENTER to send  •  / for commands  •  Ctrl+C to cancel';
+    const hint = 'ENTER to send  •  / for commands  •  ESC to cancel';
     console.log(center(chalk.hex('#4B5563')(hint), hint.length, cols));
 
     console.log();
@@ -245,12 +245,66 @@ const TOOL_ICONS: Record<string, string> = {
     web_search: '⌁',
     todo: '☰',
     git_worktree: '⎇',
+    use_skill: '⚡',
 };
 
 export function printToolCall(name: string, args: Record<string, unknown>): void {
     stopSpinner();
 
     const icon = TOOL_ICONS[name] ?? '◈';
+
+    // Special treatment for skill activation — show prominent feedback
+    if (name === 'use_skill' && typeof args.name === 'string') {
+        console.log(
+            '\n  ' +
+            C.primary(icon) + '  ' +
+            chalk.hex('#F59E0B').bold('activating skill') +
+            C.muted('  ') + chalk.hex('#F59E0B')(args.name),
+        );
+        startSpinner(`loading skill ${args.name}…`);
+        return;
+    }
+
+    // Special treatment for todo — render the task list inline
+    if (name === 'todo' && Array.isArray(args.todos)) {
+        const todos = args.todos as Array<{ content: string; status: string }>;
+        const completed = todos.filter((t) => t.status === 'completed').length;
+        const total = todos.length;
+        const inProgress = todos.find((t) => t.status === 'in_progress');
+        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        // Progress bar
+        const barWidth = 20;
+        const filled = Math.round((completed / total) * barWidth);
+        const bar = C.success('█'.repeat(filled)) + C.muted('░'.repeat(barWidth - filled));
+
+        console.log('\n  ' + C.primary(icon) + '  ' + C.accent.bold('tasks') + C.muted(`  ${completed}/${total}`) + `  ${bar}  ${C.muted(pct + '%')}`);
+
+        for (const todo of todos) {
+            let statusIcon: string;
+            let line: string;
+            switch (todo.status) {
+                case 'completed':
+                    statusIcon = C.success('✓');
+                    line = chalk.dim.strikethrough(todo.content);
+                    break;
+                case 'in_progress':
+                    statusIcon = chalk.hex('#F59E0B')('▸');
+                    line = chalk.hex('#F59E0B').bold(todo.content);
+                    break;
+                default:
+                    statusIcon = C.muted('○');
+                    line = C.muted(todo.content);
+            }
+            console.log(`    ${statusIcon} ${line}`);
+        }
+
+        if (inProgress) {
+            startSpinner(inProgress.content + '…');
+        }
+        return;
+    }
+
     const primary = args.path ?? args.command ?? args.query ?? args.url ?? args.action ?? '';
     const hint = typeof primary === 'string' && primary
         ? C.muted('  ') + chalk.dim(primary.length > 72 ? primary.slice(0, 72) + '…' : primary)
@@ -277,6 +331,14 @@ export function printToolResult(name: string, result: string, isError: boolean):
                 console.log('    ' + C.error.dim(line));
             }
         }
+    } else if (name === 'use_skill') {
+        // Extract skill name from result (format: "# Skill: <name>")
+        const skillMatch = result.match(/^# Skill: (.+)$/m);
+        const skillName = skillMatch ? skillMatch[1] : 'unknown';
+        console.log('  ' + C.success('✓') + ' ' + chalk.hex('#F59E0B')(`skill loaded: ${skillName}`) + C.muted('  — instructions provided to context'));
+    } else if (name === 'todo') {
+        // Already rendered in printToolCall — just show minimal confirmation
+        stopSpinner();
     } else {
         console.log('  ' + C.success('✓') + ' ' + C.muted(name));
         const lines = result.split('\n');
@@ -377,7 +439,51 @@ export function printHelp(): void {
     cmd('mcp remove <name>', 'remove an MCP server');
     console.log();
 
+    section('Skills');
+    cmd('skills', 'list available skills');
+    console.log();
+
     section('Other');
     cmd('config-ui', 'open web config UI (localhost:3000)');
     console.log();
+}
+
+// ─── Escape key cancellation ─────────────────────────────
+
+/**
+ * Listen for Escape key press during LLM processing.
+ * Returns an AbortController — call abort() when Escape is pressed.
+ * Call cleanup() to stop listening (e.g., after processing completes).
+ */
+export function listenForEscape(): { controller: AbortController; cleanup: () => void } {
+    const controller = new AbortController();
+
+    // Enable keypress events on stdin
+    if (process.stdin.isTTY) {
+        emitKeypressEvents(process.stdin);
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+    }
+
+    const onKeypress = (_ch: string, key?: { name?: string; ctrl?: boolean }) => {
+        if (!key) return;
+        // Escape key or Ctrl+C
+        if (key.name === 'escape' || (key.ctrl && key.name === 'c')) {
+            controller.abort();
+            stopSpinner();
+            console.log('\n  ' + C.warn('⚠') + '  ' + chalk.dim('cancelled'));
+        }
+    };
+
+    process.stdin.on('keypress', onKeypress);
+
+    const cleanup = () => {
+        process.stdin.removeListener('keypress', onKeypress);
+        if (process.stdin.isTTY) {
+            process.stdin.setRawMode(false);
+            process.stdin.pause();
+        }
+    };
+
+    return { controller, cleanup };
 }
