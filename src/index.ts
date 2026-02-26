@@ -18,6 +18,7 @@ import {
 } from './store/models.js';
 import { addMcpServer, removeMcpServer, listMcpServers } from './store/mcp.js';
 import { startConfigServer } from './server/index.js';
+import { startIpcServer } from './server/ipc.js';
 import {
     printHeader,
     printConfig,
@@ -211,6 +212,59 @@ program
         await runInteractive(promptParts.join(' '), flags);
     });
 
+program
+    .command('serve-ipc')
+    .description('Starts a headless JSON-RPC server on stdin/stdout for editor extensions')
+    .option('-u, --use-model <name>', 'Use a named stored model')
+    .option('-a, --autonomy <level>', 'Autonomy level')
+    .option('--resume', 'Resume the latest session')
+    .action(async (flags: CLIFlags & { resume?: boolean }) => {
+        flags.mode = 'exec'; // IPC generally implies exec mode
+        const cwd = process.cwd();
+        const config = loadConfig(cwd, flags);
+
+        // Build tool registry
+        const tools = new ToolRegistry();
+        tools.register(fileReadTool);
+        tools.register(fileWriteTool);
+        tools.register(fileEditTool);
+        tools.register(fileListTool);
+        tools.register(searchGrepTool);
+        tools.register(searchFilesTool);
+        tools.register(shellTool);
+        tools.register(webFetchTool);
+        tools.register(webSearchTool);
+        tools.register(todoTool);
+        tools.register(gitWorktreeTool);
+
+        // Create provider
+        const provider = createProvider(config.provider);
+
+        // Connect MCP servers
+        if (Object.keys(config.mcpServers).length > 0) {
+            try {
+                // Do not print connecting messages in IPC mode by setting verbose=false
+                await connectMCPServers(config.mcpServers, tools, false);
+            } catch (err) { }
+        }
+
+        const agentsMdContent = loadAgentsMd(cwd);
+        const memoryContent = loadMemory(cwd);
+        const skills = loadSkills(cwd);
+        const skillDescriptions = skills.map((s) => `${s.name}: ${s.description}`);
+
+        await startIpcServer({
+            provider,
+            tools,
+            config,
+            cwd,
+            agentsMdContent,
+            memoryContent,
+            skillDescriptions,
+            resume: flags.resume
+        });
+    });
+
 // ────────────────── Interactive Model Add ──────────────────
 
 async function addModelInteractive(): Promise<void> {
@@ -339,7 +393,7 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
         printInfo(`resumed session  ·  ${session.messages.length} messages`);
     }
     if (agentsMdContent) printInfo('AGENTS.md loaded');
-    if (memoryContent)   printInfo('memory loaded');
+    if (memoryContent) printInfo('memory loaded');
     if (skills.length > 0) printInfo(`${skills.length} skill${skills.length > 1 ? 's' : ''} loaded`);
 
     let currentMode = config.mode;
