@@ -73,7 +73,7 @@ export function loadConfig(cwd: string = process.cwd(), flags: CLIFlags = {}): D
     let providerConfig: ProviderConfig = {
         type: 'openai',
         model: 'gpt-4o',
-        maxTokens: 4096,
+        maxTokens: 16384,
     };
     let autonomy: AutonomyLevel = 'ask';
     let mode: AgentMode = 'exec'; // Default to DeepAgent mode

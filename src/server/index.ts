@@ -290,7 +290,7 @@ const UI_HTML = `<!DOCTYPE html>
                 model: document.getElementById('model-id').value,
                 baseUrl: document.getElementById('model-baseurl').value,
                 apiKey: document.getElementById('model-apikey').value || undefined,
-                maxTokens: 4096,
+                maxTokens: 16384,
                 isDefault: document.getElementById('model-default').checked
             };
             

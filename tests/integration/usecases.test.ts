@@ -21,7 +21,7 @@ import { fileEditTool } from '../../src/tools/file-edit.js';
 import { fileListTool } from '../../src/tools/file-list.js';
 import { searchGrepTool } from '../../src/tools/search-grep.js';
 import { shellTool } from '../../src/tools/shell.js';
-import { todoTool } from '../../src/tools/todo.js';
+import { todoTool, resetTodos, getTodos } from '../../src/tools/todo.js';
 import type { LLMProvider } from '../../src/providers/base.js';
 import type { DeepaConfig, Message, StreamChunk } from '../../src/types.js';
 
@@ -92,6 +92,7 @@ function text(t: string): StreamChunk {
 // ─── Setup / teardown ──────────────────────────────────────
 
 beforeEach(() => {
+    resetTodos();
     mkdirSync(join(WORKSPACE, '.git'), { recursive: true });
     mkdirSync(join(WORKSPACE, 'src'), { recursive: true });
     mkdirSync(join(WORKSPACE, 'tests'), { recursive: true });
@@ -152,7 +153,7 @@ export function getLastN<T>(arr: T[], n: number): T[] {
 
         const provider = scriptedProvider([
             // Turn 1: plan (exec mode requires todo first)
-            [toolCall('tc1', 'todo', { action: 'write', content: '- [ ] Read utils.ts\n- [ ] Fix off-by-one\n- [ ] Verify fix' }), done()],
+            [toolCall('tc1', 'todo', { todos: [{ content: 'Read utils.ts', status: 'in_progress' }, { content: 'Fix off-by-one', status: 'pending' }, { content: 'Verify fix', status: 'pending' }] }), done()],
             // Turn 2: read the file
             [toolCall('tc2', 'file_read', { path: 'src/utils.ts' }), done()],
             // Turn 3: apply the fix
@@ -187,7 +188,7 @@ describe('Use Case 3: Add New Function', () => {
 
         const provider = scriptedProvider([
             // Plan
-            [toolCall('tc1', 'todo', { action: 'write', content: '- [ ] Read math.ts\n- [ ] Append clamp function' }), done()],
+            [toolCall('tc1', 'todo', { todos: [{ content: 'Read math.ts', status: 'in_progress' }, { content: 'Append clamp function', status: 'pending' }] }), done()],
             // Read existing
             [toolCall('tc2', 'file_read', { path: 'src/math.ts' }), done()],
             // Append clamp
@@ -218,7 +219,7 @@ describe('Use Case 4: Rename Variable', () => {
         writeFileSync(join(WORKSPACE, 'src/counter.ts'), `let cnt = 0;\nfunction increment() { cnt++; }\nfunction reset() { cnt = 0; }\nconsole.log(cnt);\n`);
 
         const provider = scriptedProvider([
-            [toolCall('tc1', 'todo', { action: 'write', content: '- [ ] Read counter.ts\n- [ ] Replace cnt with count' }), done()],
+            [toolCall('tc1', 'todo', { todos: [{ content: 'Read counter.ts', status: 'in_progress' }, { content: 'Replace cnt with count', status: 'pending' }] }), done()],
             [toolCall('tc2', 'file_read', { path: 'src/counter.ts' }), done()],
             [toolCall('tc3', 'file_edit', { path: 'src/counter.ts', search: 'cnt', replace: 'count', replaceAll: true }), done()],
             [text('Renamed all 4 occurrences of `cnt` to `count` in counter.ts.'), done()],
@@ -253,7 +254,7 @@ describe('multiply', () => {
 `;
 
         const provider = scriptedProvider([
-            [toolCall('tc1', 'todo', { action: 'write', content: '- [ ] Read math.ts\n- [ ] Write test file' }), done()],
+            [toolCall('tc1', 'todo', { todos: [{ content: 'Read math.ts', status: 'in_progress' }, { content: 'Write test file', status: 'pending' }] }), done()],
             [toolCall('tc2', 'file_read', { path: 'src/math.ts' }), done()],
             [toolCall('tc3', 'file_write', { path: 'tests/math.test.ts', content: testContent }), done()],
             [text('Created tests/math.test.ts with 3 test cases for multiply: positive numbers, zero, and negatives.'), done()],
@@ -313,7 +314,7 @@ describe('Use Case 7: Shell Command Execution', () => {
     it('executes a shell command and returns the output', async () => {
         const collectedText: string[] = [];
         const provider = scriptedProvider([
-            [toolCall('tc1', 'todo', { action: 'write', content: '- [ ] Run npm init -y' }), done()],
+            [toolCall('tc1', 'todo', { todos: [{ content: 'Run npm init -y', status: 'in_progress' }] }), done()],
             [toolCall('tc2', 'shell', { command: 'echo \'{"name":"demo","version":"1.0.0"}\' > package.json && echo "created package.json"' }), done()],
             [text('Created package.json with npm init. Exit code 0.'), done()],
         ]);
@@ -339,18 +340,18 @@ describe('Use Case 8: Plan Mode (Read-Only)', () => {
     it('creates a plan using todo tool without modifying source files', async () => {
         writeFileSync(join(WORKSPACE, 'src/app.ts'), `import express from 'express';\nconst app = express();\napp.listen(3000);\n`);
 
-        const planContent = `- [ ] Install jsonwebtoken and @types/jsonwebtoken
-- [ ] Create src/middleware/auth.ts with verifyToken middleware
-- [ ] Add POST /login route that issues a JWT
-- [ ] Protect private routes with the auth middleware
-- [ ] Add JWT_SECRET to environment variables
-- [ ] Write tests for the auth middleware`;
-
         const provider = scriptedProvider([
             // Read existing app structure
             [toolCall('tc1', 'file_read', { path: 'src/app.ts' }), done()],
-            // Write the plan
-            [toolCall('tc2', 'todo', { action: 'write', content: planContent }), done()],
+            // Write the plan as a todo list
+            [toolCall('tc2', 'todo', { todos: [
+                { content: 'Install jsonwebtoken and @types/jsonwebtoken', status: 'pending' },
+                { content: 'Create src/middleware/auth.ts with verifyToken middleware', status: 'pending' },
+                { content: 'Add POST /login route that issues a JWT', status: 'pending' },
+                { content: 'Protect private routes with the auth middleware', status: 'pending' },
+                { content: 'Add JWT_SECRET to environment variables', status: 'pending' },
+                { content: 'Write tests for the auth middleware', status: 'pending' },
+            ] }), done()],
             // Return plan summary
             [text('Plan created. Steps: install jsonwebtoken, create auth middleware, add /login route, protect routes, configure env, write tests.'), done()],
         ]);
@@ -361,11 +362,11 @@ describe('Use Case 8: Plan Mode (Read-Only)', () => {
             makeOptions(provider, 'plan'),
         );
 
-        // Plan file should have been written
-        expect(existsSync(join(WORKSPACE, '.deepa/plan.md'))).toBe(true);
-        const plan = readFileSync(join(WORKSPACE, '.deepa/plan.md'), 'utf-8');
-        expect(plan).toContain('JWT');
-        expect(plan).toContain('middleware');
+        // Todo list should be stored in memory
+        const todos = getTodos();
+        expect(todos.length).toBe(6);
+        expect(todos.some((t) => t.content.includes('jsonwebtoken'))).toBe(true);
+        expect(todos.some((t) => t.content.includes('middleware'))).toBe(true);
 
         // Source file must NOT have been modified
         const appSource = readFileSync(join(WORKSPACE, 'src/app.ts'), 'utf-8');
@@ -383,7 +384,7 @@ describe('Use Case 9: Error Self-Correction', () => {
         writeFileSync(join(WORKSPACE, 'package.json'), JSON.stringify({ name: 'myapp', version: '1.0.0' }, null, 2));
 
         const provider = scriptedProvider([
-            [toolCall('tc1', 'todo', { action: 'write', content: '- [ ] Update version in package.json' }), done()],
+            [toolCall('tc1', 'todo', { todos: [{ content: 'Update version in package.json', status: 'in_progress' }] }), done()],
             // First attempt: wrong path (simulate LLM error)
             [toolCall('tc2', 'file_edit', { path: 'package.json', search: '"version": "1.0.0"', replace: '"version": "2.0.0"' }), done()],
             // (file_edit succeeds because path is correct, but let's verify)
@@ -399,7 +400,7 @@ describe('Use Case 9: Error Self-Correction', () => {
     it('handles edit failure on missing file and creates it instead', async () => {
         // No package.json exists — agent should fall back to file_write
         const provider = scriptedProvider([
-            [toolCall('tc1', 'todo', { action: 'write', content: '- [ ] Try edit, fallback to write if missing' }), done()],
+            [toolCall('tc1', 'todo', { todos: [{ content: 'Try edit, fallback to write if missing', status: 'in_progress' }] }), done()],
             // First: try to list the directory to understand the workspace
             [toolCall('tc2', 'file_list', { path: '.' }), done()],
             // Create the file since it doesn't exist
@@ -441,19 +442,25 @@ export function saveUser(name: string, email: string): object {
 
         const provider = scriptedProvider([
             // Step 1: write plan
-            [toolCall('tc1', 'todo', {
-                action: 'write',
-                content: '- [ ] Read src/users.ts\n- [ ] Add stripHtml helper\n- [ ] Update saveUser to sanitise name\n- [ ] Verify with grep',
-            }), done()],
+            [toolCall('tc1', 'todo', { todos: [
+                { content: 'Read src/users.ts', status: 'in_progress' },
+                { content: 'Add stripHtml helper', status: 'pending' },
+                { content: 'Update saveUser to sanitise name', status: 'pending' },
+                { content: 'Verify with grep', status: 'pending' },
+            ] }), done()],
             // Step 2: read the file
             [toolCall('tc2', 'file_read', { path: 'src/users.ts' }), done()],
             // Step 3: rewrite with sanitisation added
             [toolCall('tc3', 'file_write', { path: 'src/users.ts', content: expectedContent }), done()],
-            // Step 4: toggle first 3 todos done
-            [toolCall('tc4', 'todo', { action: 'toggle', taskIndex: 0 }), done()],
-            [toolCall('tc5', 'todo', { action: 'toggle', taskIndex: 1 }), done()],
+            // Step 4: update todos — mark first 3 done
+            [toolCall('tc4', 'todo', { todos: [
+                { content: 'Read src/users.ts', status: 'completed' },
+                { content: 'Add stripHtml helper', status: 'completed' },
+                { content: 'Update saveUser to sanitise name', status: 'completed' },
+                { content: 'Verify with grep', status: 'in_progress' },
+            ] }), done()],
             // Step 5: grep to verify sanitisation is present
-            [toolCall('tc6', 'search_grep', { query: 'stripHtml', path: 'src/users.ts' }), done()],
+            [toolCall('tc5', 'search_grep', { query: 'stripHtml', path: 'src/users.ts' }), done()],
             // Step 6: final summary
             [text('Done. Added `stripHtml` helper and updated `saveUser` to sanitise the `name` field by removing HTML tags before storing.'), done()],
         ]);

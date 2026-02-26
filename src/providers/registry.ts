@@ -15,7 +15,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
                 apiKey: config.apiKey,
                 baseUrl: config.baseUrl,
                 model: config.model || 'claude-sonnet-4-20250514',
-                maxTokens: config.maxTokens || 4096,
+                maxTokens: config.maxTokens || 16384,
             });
 
         case 'openai':
@@ -23,7 +23,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
                 apiKey: config.apiKey || '',
                 baseUrl: config.baseUrl || 'https://api.openai.com/v1',
                 model: config.model || 'gpt-4o',
-                maxTokens: config.maxTokens || 4096,
+                maxTokens: config.maxTokens || 16384,
             });
 
         case 'local':
@@ -32,7 +32,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
                 apiKey: config.apiKey || '',
                 baseUrl: config.baseUrl || 'http://localhost:1234/v1',
                 model: config.model || 'local-model',
-                maxTokens: config.maxTokens, // Do not default to 4096 for local; let Llama.cpp handle context natively
+                maxTokens: config.maxTokens, // Do not default for local; let Llama.cpp handle context natively
             });
     }
 }
