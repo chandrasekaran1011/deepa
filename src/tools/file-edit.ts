@@ -8,14 +8,34 @@ import type { ToolResult, ToolContext } from '../types.js';
 
 const parameters = z.object({
     path: z.string().describe('Path to the file to edit'),
-    search: z.string().describe('Exact text to search for (must match precisely)'),
+    search: z.string().describe('Exact text to search for (must be unique in the file unless replaceAll is true)'),
     replace: z.string().describe('Replacement text'),
-    replaceAll: z.boolean().optional().default(false).describe('Replace all occurrences'),
+    replaceAll: z.boolean().optional().default(false).describe('Replace all occurrences (required when multiple matches exist)'),
 });
+
+/** Return a few lines of context around the first occurrence of `needle` in `lines`. */
+function getContext(lines: string[], needle: string, contextLines = 3): string {
+    const joined = lines.join('\n');
+    const idx = joined.indexOf(needle);
+    if (idx < 0) return '';
+
+    // Find which line the match starts on
+    const before = joined.slice(0, idx);
+    const matchStartLine = before.split('\n').length - 1;
+    const matchEndLine = matchStartLine + needle.split('\n').length - 1;
+
+    const start = Math.max(0, matchStartLine - contextLines);
+    const end = Math.min(lines.length - 1, matchEndLine + contextLines);
+
+    return lines
+        .slice(start, end + 1)
+        .map((l, i) => `${start + i + 1}: ${l}`)
+        .join('\n');
+}
 
 export const fileEditTool: Tool = {
     name: 'file_edit',
-    description: 'Edit a file by replacing exact text matches. Specify the exact string to find and its replacement. Use replaceAll to replace all occurrences.',
+    description: 'Edit a file by replacing exact text matches. The search text must be unique in the file (to prevent wrong-location edits). If multiple matches exist, either provide more surrounding context to make it unique, or set replaceAll: true.',
     parameters,
     safetyLevel: 'cautious',
 
@@ -37,6 +57,17 @@ export const fileEditTool: Tool = {
             };
         }
 
+        // Uniqueness check: reject ambiguous single replacements (Claude Code pattern)
+        if (!replaceAll && occurrences > 1) {
+            return {
+                content: `Error: Found ${occurrences} occurrences of the search text in ${absPath}. ` +
+                    `The match must be unique to prevent editing the wrong location. ` +
+                    `Either include more surrounding context in your search string to make it unique, ` +
+                    `or set replaceAll: true to replace all ${occurrences} occurrences.`,
+                isError: true,
+            };
+        }
+
         if (replaceAll) {
             content = content.replaceAll(search, replace);
         } else {
@@ -45,8 +76,13 @@ export const fileEditTool: Tool = {
 
         writeFileSync(absPath, content, 'utf-8');
 
+        // Show context around the replacement so the LLM can verify
+        const newLines = content.split('\n');
+        const contextSnippet = getContext(newLines, replace);
+        const contextBlock = contextSnippet ? `\n\nContext after edit:\n${contextSnippet}` : '';
+
         return {
-            content: `Edited ${absPath}: replaced ${replaceAll ? occurrences : 1} occurrence(s)`,
+            content: `Edited ${absPath}: replaced ${replaceAll ? occurrences : 1} occurrence(s)${contextBlock}`,
         };
     },
 };

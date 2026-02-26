@@ -80,7 +80,9 @@ export class ToolRegistry {
             const entries = Object.entries(params as Record<string, unknown>)
                 .filter(([, v]) => v !== null && v !== undefined)   // strip nulls entirely
                 .map(([k, v]) => {
-                    if (typeof v === 'object') return [k, JSON.stringify(v)];
+                    // Stringify plain objects (e.g. LLM sends {foo:1} for a string param)
+                    // but preserve arrays — tools like todo accept array params directly
+                    if (typeof v === 'object' && !Array.isArray(v)) return [k, JSON.stringify(v)];
                     return [k, v];
                 });
             sanitised = Object.fromEntries(entries);
