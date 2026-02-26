@@ -1,83 +1,106 @@
-// ─── Todo / plan tracking tool ───
+// ─── Todo tool — Claude Code TodoWrite pattern ───
+// Full-list replacement model: each call writes the complete todo list.
+// Supports pending → in_progress → completed state transitions.
+// The UI renders todos in real-time via onToolCall/onToolResult callbacks.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
-import { dirname } from 'path';
-import { resolvePath } from './resolve-path.js';
 import { z } from 'zod';
 import type { Tool } from './registry.js';
 import type { ToolResult, ToolContext } from '../types.js';
 
-const parameters = z.object({
-    action: z.enum(['read', 'write', 'toggle']).describe('Action: read current plan, write a new plan, or toggle a task'),
-    content: z.string().optional().nullable().describe('Plan content in markdown (for write action)'),
-    taskIndex: z.number().optional().nullable().describe('Task index to toggle (0-based, for toggle action)'),
+const todoItemSchema = z.object({
+    content: z.string().min(1).describe('Imperative task description (e.g., "Run tests", "Fix login bug")'),
+    status: z.enum(['pending', 'in_progress', 'completed']).describe('Task state'),
 });
 
-const PLAN_FILENAME = '.deepa/plan.md';
+const parameters = z.object({
+    todos: z.array(todoItemSchema).describe('The complete updated todo list — replaces the previous list entirely'),
+});
+
+export type TodoItem = z.infer<typeof todoItemSchema>;
+
+/** In-memory todo store — shared across the session */
+let currentTodos: TodoItem[] = [];
+
+/** Read the current todo list (for UI or tests) */
+export function getTodos(): TodoItem[] {
+    return currentTodos;
+}
+
+/** Reset todos (for tests) */
+export function resetTodos(): void {
+    currentTodos = [];
+}
+
+/** Format the todo list for terminal display */
+export function formatTodos(todos: TodoItem[]): string {
+    if (todos.length === 0) return 'No tasks.';
+
+    const completed = todos.filter((t) => t.status === 'completed').length;
+    const total = todos.length;
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    // Progress bar
+    const barWidth = 20;
+    const filled = Math.round((completed / total) * barWidth);
+    const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
+
+    const lines: string[] = [];
+
+    for (const todo of todos) {
+        let icon: string;
+        let text: string;
+        switch (todo.status) {
+            case 'completed':
+                icon = '✓';
+                text = todo.content;
+                break;
+            case 'in_progress':
+                icon = '▸';
+                text = todo.content;
+                break;
+            default:
+                icon = '○';
+                text = todo.content;
+        }
+        lines.push(`  ${icon} ${text}`);
+    }
+
+    lines.push('');
+    lines.push(`  ${bar}  ${completed}/${total} (${pct}%)`);
+
+    return lines.join('\n');
+}
 
 export const todoTool: Tool = {
     name: 'todo',
-    description: 'Manage a task plan (todo list). Use "write" to create/update the plan, "read" to view it, "toggle" to mark items complete/incomplete. Plans use markdown checkboxes ([ ] / [x]).',
+    description:
+        'Track task progress with a structured todo list. Pass the COMPLETE updated list each time (full replacement). ' +
+        'Use status: "pending" for not started, "in_progress" for current work (max 1), "completed" for done. ' +
+        'Update frequently as you work through tasks.',
     parameters,
     safetyLevel: 'safe',
 
-    async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
-        const { action, content, taskIndex } = params as z.infer<typeof parameters>;
-        const planPath = resolvePath(PLAN_FILENAME, context.cwd);
+    async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
+        const { todos } = params as z.infer<typeof parameters>;
 
-        switch (action) {
-            case 'read': {
-                if (!existsSync(planPath)) {
-                    return { content: 'No plan exists yet. Use action "write" to create one.' };
-                }
-                const data = readFileSync(planPath, 'utf-8');
-                return { content: `Current plan:\n\n${data}` };
-            }
-
-            case 'write': {
-                if (!content) {
-                    return { content: 'Error: content is required for write action', isError: true };
-                }
-                const dir = dirname(planPath);
-                if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-                writeFileSync(planPath, content, 'utf-8');
-                const taskCount = (content.match(/^[\s]*[-*]\s*\[[ x/]\]/gm) || []).length;
-                return { content: `Plan updated at ${planPath} (${taskCount} tasks)\n\n${content}` };
-            }
-
-            case 'toggle': {
-                if (taskIndex === undefined) {
-                    return { content: 'Error: taskIndex is required for toggle action', isError: true };
-                }
-                if (!existsSync(planPath)) {
-                    return { content: 'Error: No plan exists to toggle tasks in', isError: true };
-                }
-
-                const data = readFileSync(planPath, 'utf-8');
-                const lines = data.split('\n');
-                let checkboxCount = 0;
-
-                for (let i = 0; i < lines.length; i++) {
-                    const match = lines[i].match(/^(\s*[-*]\s*)\[([ x/])\](.*)$/);
-                    if (match) {
-                        if (checkboxCount === taskIndex) {
-                            const current = match[2];
-                            const next = current === 'x' ? ' ' : 'x';
-                            lines[i] = `${match[1]}[${next}]${match[3]}`;
-                            writeFileSync(planPath, lines.join('\n'), 'utf-8');
-                            return {
-                                content: `Toggled task ${taskIndex}: [${current}] → [${next}]\n\n${lines[i].trim()}`,
-                            };
-                        }
-                        checkboxCount++;
-                    }
-                }
-
-                return {
-                    content: `Error: Task index ${taskIndex} not found (${checkboxCount} tasks exist)`,
-                    isError: true,
-                };
-            }
+        // Validate: at most one in_progress
+        const inProgress = todos.filter((t) => t.status === 'in_progress');
+        if (inProgress.length > 1) {
+            return {
+                content: `Error: Only one task can be in_progress at a time (found ${inProgress.length}). ` +
+                    `Complete the current task before starting another.`,
+                isError: true,
+            };
         }
+
+        // Store
+        currentTodos = todos;
+
+        const completed = todos.filter((t) => t.status === 'completed').length;
+        const total = todos.length;
+
+        return {
+            content: formatTodos(todos) + `\n\nTodo list updated: ${completed}/${total} completed.`,
+        };
     },
 };
