@@ -289,9 +289,12 @@ describe('Todo Tool', () => {
             ],
         }, makeContext());
         expect(result.content).toContain('New task');
-        expect(result.content).not.toContain('Old task');
+        // The feedback section mentions removed tasks, but the formatted list should not show Old task
         expect(getTodos()).toHaveLength(1);
         expect(getTodos()[0].content).toBe('New task');
+        // Verify the feedback reports the removal
+        expect(result.content).toContain('Removed:');
+        expect(result.content).toContain('Added:');
     });
 
     // ─── Status tracking ───
@@ -416,7 +419,83 @@ describe('Todo Tool', () => {
         expect(formatTodos([])).toBe('No tasks.');
     });
 
-    it('has safe safety level', () => {
-        expect(todoTool.safetyLevel).toBe('safe');
+    // ─── Dynamic feedback ───
+
+    it('nudges when no task is in_progress but pending tasks remain', async () => {
+        const result = await todoTool.execute({
+            todos: [
+                { content: 'Task A', status: 'completed' },
+                { content: 'Task B', status: 'pending' },
+            ],
+        }, makeContext());
+        expect(result.content).toContain('WARNING');
+        expect(result.content).toContain('in_progress');
+    });
+
+    it('reports "All tasks completed" when everything is done', async () => {
+        await todoTool.execute({
+            todos: [
+                { content: 'Task A', status: 'in_progress' },
+            ],
+        }, makeContext());
+        const result = await todoTool.execute({
+            todos: [
+                { content: 'Task A', status: 'completed' },
+            ],
+        }, makeContext());
+        expect(result.content).toContain('All tasks completed');
+    });
+
+    it('reports newly completed tasks', async () => {
+        await todoTool.execute({
+            todos: [
+                { content: 'Step 1', status: 'in_progress' },
+                { content: 'Step 2', status: 'pending' },
+            ],
+        }, makeContext());
+        const result = await todoTool.execute({
+            todos: [
+                { content: 'Step 1', status: 'completed' },
+                { content: 'Step 2', status: 'in_progress' },
+            ],
+        }, makeContext());
+        expect(result.content).toContain('Completed: "Step 1"');
+    });
+
+    it('reports dynamically added tasks', async () => {
+        await todoTool.execute({
+            todos: [
+                { content: 'Original', status: 'in_progress' },
+            ],
+        }, makeContext());
+        const result = await todoTool.execute({
+            todos: [
+                { content: 'Original', status: 'completed' },
+                { content: 'Discovered work', status: 'in_progress' },
+            ],
+        }, makeContext());
+        expect(result.content).toContain('Added: "Discovered work"');
+    });
+
+    it('shows "Final task" nudge on last remaining task', async () => {
+        await todoTool.execute({
+            todos: [
+                { content: 'Step 1', status: 'completed' },
+                { content: 'Step 2', status: 'in_progress' },
+            ],
+        }, makeContext());
+        expect(getTodos()[1].status).toBe('in_progress');
+        // Result should mention this is the final task
+        const result = await todoTool.execute({
+            todos: [
+                { content: 'Step 1', status: 'completed' },
+                { content: 'Step 2', status: 'in_progress' },
+            ],
+        }, makeContext());
+        expect(result.content).toContain('Final task');
+    });
+
+    it('has low risk level', () => {
+        expect(todoTool.riskLevel).toBe('low');
     });
 });

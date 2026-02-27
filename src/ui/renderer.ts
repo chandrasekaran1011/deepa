@@ -64,6 +64,14 @@ export function stopSpinner(success?: string): void {
 // ─── User Input ───────────────────────────────────────────
 
 export async function promptUser(prompt: string = '❯ '): Promise<string> {
+    // Ensure stdin is in line mode and active before creating readline
+    if (process.stdin.isTTY && process.stdin.isRaw) {
+        process.stdin.setRawMode(false);
+    }
+    if (process.stdin.isPaused()) {
+        process.stdin.resume();
+    }
+
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     return new Promise((resolve) => {
         rl.question(prompt, (answer) => {
@@ -450,6 +458,9 @@ export function printHelp(): void {
 
 // ─── Escape key cancellation ─────────────────────────────
 
+// Ensure emitKeypressEvents is called only once to avoid corrupting stdin
+let keypressInitialised = false;
+
 /**
  * Listen for Escape key press during LLM processing.
  * Returns an AbortController — call abort() when Escape is pressed.
@@ -458,9 +469,13 @@ export function printHelp(): void {
 export function listenForEscape(): { controller: AbortController; cleanup: () => void } {
     const controller = new AbortController();
 
-    // Enable keypress events on stdin
     if (process.stdin.isTTY) {
-        emitKeypressEvents(process.stdin);
+        // Only patch stdin once — calling emitKeypressEvents multiple times
+        // can corrupt the stream's internal decoder state
+        if (!keypressInitialised) {
+            emitKeypressEvents(process.stdin);
+            keypressInitialised = true;
+        }
         process.stdin.setRawMode(true);
         process.stdin.resume();
     }
@@ -481,7 +496,9 @@ export function listenForEscape(): { controller: AbortController; cleanup: () =>
         process.stdin.removeListener('keypress', onKeypress);
         if (process.stdin.isTTY) {
             process.stdin.setRawMode(false);
-            process.stdin.pause();
+            // Do NOT pause stdin here — readline needs it active for the
+            // next promptInput() call.  Pausing would leave the REPL unable
+            // to accept input after a cancel.
         }
     };
 
