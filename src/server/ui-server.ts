@@ -409,7 +409,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
         try {
             const updatedConfig = {
                 ...config,
-                mode: 'chat' as const,
+                mode: 'exec' as const,
                 autonomy: config.autonomy,
             };
 

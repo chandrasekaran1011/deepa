@@ -116,14 +116,26 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
                 </div>
             )}
 
-            {/* Tool calls — shown as flat lines */}
-            {message.toolCalls && message.toolCalls.length > 0 && (
-                <div className="space-y-0.5">
-                    {message.toolCalls.map((call) => (
-                        <ToolLine key={call.id} call={call} />
-                    ))}
-                </div>
-            )}
+            {/* Tool calls — shown as flat lines, with only the latest todo card visible */}
+            {message.toolCalls && message.toolCalls.length > 0 && (() => {
+                // Find the index of the last todo call so we only render one TodoCard
+                const lastTodoIdx = (() => {
+                    for (let i = message.toolCalls!.length - 1; i >= 0; i--) {
+                        if (message.toolCalls![i].name === 'todo') return i;
+                    }
+                    return -1;
+                })();
+
+                return (
+                    <div className="space-y-0.5">
+                        {message.toolCalls!.map((call, idx) => {
+                            // Hide earlier todo calls — only show the latest one
+                            if (call.name === 'todo' && idx !== lastTodoIdx) return null;
+                            return <ToolLine key={call.id} call={call} />;
+                        })}
+                    </div>
+                );
+            })()}
 
             {/* Assistant text with markdown */}
             {!isUser && message.content && (
