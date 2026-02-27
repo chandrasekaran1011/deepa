@@ -161,15 +161,12 @@ export function useAgent() {
                 break;
 
             case 'done':
-                if (currentMessageIdRef.current) {
-                    setMessages((prev) =>
-                        prev.map((msg) =>
-                            msg.id === currentMessageIdRef.current
-                                ? { ...msg, isStreaming: false }
-                                : msg
-                        )
-                    );
-                }
+                // Clear isStreaming on ALL messages (safety net for any stuck state)
+                setMessages((prev) =>
+                    prev.map((msg) =>
+                        msg.isStreaming ? { ...msg, isStreaming: false } : msg
+                    )
+                );
                 setIsProcessing(false);
                 currentMessageIdRef.current = null;
 

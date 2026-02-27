@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ChevronDown, ChevronRight, ShieldCheck, ShieldX, MessageSquare } from 'lucide-react';
+import { ChevronDown, ChevronRight, ShieldCheck, ShieldX, MessageSquare, User, Bot } from 'lucide-react';
 import type { ChatMessage, ToolCall } from '../hooks/useAgent';
 
 interface ChatThreadProps {
@@ -32,14 +32,11 @@ function getToolLabel(call: ToolCall): { verb: string; arg: string } {
     const info = TOOL_VERBS[call.name] || { done: call.name, pending: `${call.name}...` };
     const verb = call.status === 'pending' ? info.pending : info.done;
 
-    // Extract primary argument
     let arg = '';
     const args = call.args || {};
     if (args.path) {
-        // Show basename for file paths
         const parts = String(args.path).split('/');
         arg = parts[parts.length - 1];
-        // If parent dir is meaningful, show it
         if (parts.length > 1) {
             arg = parts.slice(-2).join('/');
         }
@@ -72,7 +69,7 @@ function getResultLineCount(result: string): number {
 
 export const ChatThread: React.FC<ChatThreadProps> = ({ messages, isProcessing, pendingConfirmation, onConfirmResponse }) => {
     return (
-        <div className="py-6 px-4 space-y-1">
+        <div className="py-6 px-4 space-y-0">
             {messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center min-h-[60vh] text-[var(--text-muted)] space-y-3">
                     <div className="text-4xl opacity-30">◆</div>
@@ -93,7 +90,10 @@ export const ChatThread: React.FC<ChatThreadProps> = ({ messages, isProcessing, 
             )}
 
             {isProcessing && !pendingConfirmation && messages[messages.length - 1]?.role !== 'assistant' && (
-                <div className="flex items-center gap-3 py-2 px-2">
+                <div className="flex items-center gap-3 py-3 px-3">
+                    <div className="w-6 h-6 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0">
+                        <Bot size={13} className="text-[var(--accent)]" />
+                    </div>
                     <span className="spinner text-[var(--text-muted)] text-sm">✱</span>
                     <span className="text-[var(--text-muted)] text-sm">Thinking...</span>
                 </div>
@@ -107,18 +107,47 @@ export const ChatThread: React.FC<ChatThreadProps> = ({ messages, isProcessing, 
 const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
     const isUser = message.role === 'user';
 
-    return (
-        <div className="py-1">
-            {/* User message */}
-            {isUser && (
-                <div className="py-3 px-2 text-[var(--text)] text-sm whitespace-pre-wrap">
+    if (isUser) {
+        return (
+            <div className="mt-5 mb-3">
+                {/* User header */}
+                <div className="flex items-center gap-2 px-2 mb-1.5">
+                    <div className="w-6 h-6 rounded-full bg-[var(--text-muted)]/20 flex items-center justify-center shrink-0">
+                        <User size={13} className="text-[var(--text-secondary)]" />
+                    </div>
+                    <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">You</span>
+                </div>
+                {/* User message body */}
+                <div className="py-2 px-3 ml-8 text-[var(--text)] text-sm whitespace-pre-wrap leading-relaxed">
                     {message.content}
                 </div>
-            )}
+                {/* Attachment thumbnails */}
+                {message.attachments && message.attachments.length > 0 && (
+                    <div className="flex gap-2 px-3 ml-8 pb-1">
+                        {message.attachments.map((att, i) => (
+                            <div key={i} className="w-16 h-16 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] overflow-hidden">
+                                {att.preview ? (
+                                    <img src={att.preview} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)] text-[10px]">
+                                        {att.name}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {/* Separator */}
+                <div className="mx-2 mt-2 border-b border-[var(--border)]/50" />
+            </div>
+        );
+    }
 
+    // Assistant message
+    return (
+        <div className="py-1">
             {/* Tool calls — shown as flat lines, with only the latest todo card visible */}
             {message.toolCalls && message.toolCalls.length > 0 && (() => {
-                // Find the index of the last todo call so we only render one TodoCard
                 const lastTodoIdx = (() => {
                     for (let i = message.toolCalls!.length - 1; i >= 0; i--) {
                         if (message.toolCalls![i].name === 'todo') return i;
@@ -129,7 +158,6 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
                 return (
                     <div className="space-y-0.5">
                         {message.toolCalls!.map((call, idx) => {
-                            // Hide earlier todo calls — only show the latest one
                             if (call.name === 'todo' && idx !== lastTodoIdx) return null;
                             return <ToolLine key={call.id} call={call} />;
                         })}
@@ -138,7 +166,7 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
             })()}
 
             {/* Assistant text with markdown */}
-            {!isUser && message.content && (
+            {message.content && (
                 <div className="py-2 px-2">
                     <div className={`prose-dark text-sm leading-relaxed ${message.isStreaming ? 'streaming-cursor' : ''}`}>
                         <ReactMarkdown
@@ -152,27 +180,19 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
             )}
 
             {/* Streaming with no content yet */}
-            {!isUser && !message.content && message.isStreaming && !message.toolCalls?.length && (
+            {!message.content && message.isStreaming && !message.toolCalls?.length && (
                 <div className="flex items-center gap-3 py-2 px-2">
                     <span className="spinner text-[var(--text-muted)] text-sm">✱</span>
                     <span className="text-[var(--text-muted)] text-sm">Thinking...</span>
                 </div>
             )}
 
-            {/* Attachment thumbnails for user messages */}
-            {isUser && message.attachments && message.attachments.length > 0 && (
-                <div className="flex gap-2 px-2 pb-2">
-                    {message.attachments.map((att, i) => (
-                        <div key={i} className="w-16 h-16 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] overflow-hidden">
-                            {att.preview ? (
-                                <img src={att.preview} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)] text-[10px]">
-                                    {att.name}
-                                </div>
-                            )}
-                        </div>
-                    ))}
+            {/* End-of-response indicator — shown when assistant is done and has content */}
+            {!message.isStreaming && message.content && (
+                <div className="mx-2 mt-1 mb-2 flex items-center gap-2">
+                    <div className="flex-1 border-b border-[var(--border)]/30" />
+                    <span className="text-[10px] text-[var(--text-muted)]/60 shrink-0">◆</span>
+                    <div className="flex-1 border-b border-[var(--border)]/30" />
                 </div>
             )}
         </div>
@@ -194,24 +214,36 @@ const TodoCard: React.FC<{ call: ToolCall }> = ({ call }) => {
     const completed = todos.filter(t => t.status === 'completed').length;
     const total = todos.length;
     const inProgress = todos.find(t => t.status === 'in_progress');
-    const title = inProgress?.activeForm || 'Update Todos';
+    const allDone = completed === total;
+    const title = allDone ? 'All tasks completed' : (inProgress?.activeForm || inProgress?.content || 'Update Todos');
 
     return (
         <div className="my-2 mx-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden">
-            {/* Header */}
+            {/* Header with progress bar */}
             <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border)]">
-                <span className={`text-sm ${call.status === 'pending' ? 'text-[var(--text-muted)]' : 'text-[var(--green)]'}`}>●</span>
-                <span className="font-bold text-sm text-[var(--text)]">{title}</span>
+                <span className={`text-sm ${allDone ? 'text-[var(--green)]' : call.status === 'pending' ? 'text-[var(--text-muted)]' : 'text-[var(--accent)]'}`}>
+                    {allDone ? '✓' : '●'}
+                </span>
+                <span className={`font-bold text-sm ${allDone ? 'text-[var(--green)]' : 'text-[var(--text)]'}`}>{title}</span>
                 {total > 0 && (
                     <span className="ml-auto text-[10px] text-[var(--text-muted)]">{completed}/{total}</span>
                 )}
             </div>
 
+            {/* Progress bar */}
+            {total > 0 && (
+                <div className="h-0.5 bg-[var(--border)]">
+                    <div
+                        className={`h-full transition-all duration-500 ease-out ${allDone ? 'bg-[var(--green)]' : 'bg-[var(--accent)]'}`}
+                        style={{ width: `${(completed / total) * 100}%` }}
+                    />
+                </div>
+            )}
+
             {/* Todo items */}
             <div className="px-3 py-2 space-y-1">
                 {todos.map((todo, i) => (
                     <div key={i} className="flex items-start gap-2 py-0.5">
-                        {/* Checkbox / spinner */}
                         {todo.status === 'completed' ? (
                             <span className="shrink-0 mt-0.5 w-4 h-4 rounded border border-[var(--green)] bg-[var(--green)]/20 flex items-center justify-center text-[var(--green)] text-[10px]">✓</span>
                         ) : todo.status === 'in_progress' ? (
@@ -219,8 +251,6 @@ const TodoCard: React.FC<{ call: ToolCall }> = ({ call }) => {
                         ) : (
                             <span className="shrink-0 mt-0.5 w-4 h-4 rounded border border-[var(--border)] bg-transparent" />
                         )}
-
-                        {/* Label */}
                         <span className={`text-sm leading-snug ${
                             todo.status === 'completed'
                                 ? 'line-through text-[var(--text-muted)]'
@@ -252,7 +282,6 @@ const ConfirmCard: React.FC<{
         }
     };
 
-    // Parse description to extract tool name and params
     const lines = description.split('\n');
     const truncatedDesc = lines.length > 8
         ? lines.slice(0, 8).join('\n') + '\n...'
@@ -260,20 +289,17 @@ const ConfirmCard: React.FC<{
 
     return (
         <div className="my-2 mx-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 overflow-hidden">
-            {/* Header */}
             <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--accent)]/20">
                 <ShieldCheck size={14} className="text-[var(--accent)]" />
                 <span className="font-bold text-sm text-[var(--text)]">Action requires approval</span>
             </div>
 
-            {/* Description */}
             <div className="px-3 py-2">
                 <pre className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap break-words font-mono leading-relaxed max-h-32 overflow-y-auto">
                     {truncatedDesc}
                 </pre>
             </div>
 
-            {/* Actions */}
             <div className="px-3 py-2 border-t border-[var(--accent)]/20">
                 {!showFeedback ? (
                     <div className="flex items-center gap-2">
@@ -333,7 +359,6 @@ const ConfirmCard: React.FC<{
 // ─── Tool Line ───
 
 const ToolLine: React.FC<{ call: ToolCall }> = ({ call }) => {
-    // Special rendering for todo tool
     if (call.name === 'todo') {
         return <TodoCard call={call} />;
     }
@@ -349,27 +374,22 @@ const ToolLine: React.FC<{ call: ToolCall }> = ({ call }) => {
                 className="flex items-center gap-3 py-1.5 px-2 w-full text-left hover:bg-[var(--bg-card)]/50 rounded transition-colors group"
                 disabled={isPending}
             >
-                {/* Status dot / spinner */}
                 {isPending ? (
                     <span className="spinner text-[var(--text-muted)] text-sm shrink-0">✱</span>
                 ) : (
                     <span className={`text-sm shrink-0 ${call.status === 'error' ? 'text-[var(--red)]' : 'text-[var(--green)]'}`}>●</span>
                 )}
 
-                {/* Verb label */}
                 <span className="font-bold text-sm text-[var(--text)]">{verb}</span>
 
-                {/* Arg */}
                 {arg && <span className="text-sm text-[var(--text-secondary)] truncate">{arg}</span>}
 
-                {/* Expand chevron */}
                 {!isPending && call.result && (
                     <span className="ml-auto text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                     </span>
                 )}
 
-                {/* Line count badge */}
                 {!isPending && call.result && !isExpanded && (
                     <span className="ml-auto text-[10px] text-[var(--text-muted)] shrink-0">
                         [{getResultLineCount(call.result)} lines]
@@ -377,7 +397,6 @@ const ToolLine: React.FC<{ call: ToolCall }> = ({ call }) => {
                 )}
             </button>
 
-            {/* Expanded result */}
             {isExpanded && call.result && (
                 <div className="ml-7 mb-2">
                     <pre className={`p-3 rounded-lg text-xs overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap ${
