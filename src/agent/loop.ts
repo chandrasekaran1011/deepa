@@ -110,7 +110,7 @@ export async function runAgentLoop(
     const toolDefs = tools.getDefinitions();
     const toolContext: ToolContext = {
         cwd,
-        autonomy: config.autonomy,
+        get autonomy() { return config.autonomy; },
         confirmAction,
         log: (msg) => {
             if (config.verbose) {

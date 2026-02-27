@@ -60,14 +60,16 @@ export class SkillRegistry {
  *
  * Directories searched (in order, last-wins for duplicate names):
  *   1. ~/.deepa/skills/
- *   2. <cwd>/.deepa/skills/
- *   3. <cwd>/.agents/skills/
+ *   2. ~/.agents/skills/
+ *   3. <cwd>/.deepa/skills/
+ *   4. <cwd>/.agents/skills/
  */
 export function loadSkills(cwd: string, overrideDirs?: string[]): SkillRegistry {
     const registry = new SkillRegistry();
 
     const dirs = overrideDirs ?? [
         join(homedir(), '.deepa', 'skills'),
+        join(homedir(), '.agents', 'skills'),
         join(cwd, '.deepa', 'skills'),
         join(cwd, '.agents', 'skills'),
     ];
@@ -77,7 +79,17 @@ export function loadSkills(cwd: string, overrideDirs?: string[]): SkillRegistry 
 
         const entries = readdirSync(dir, { withFileTypes: true });
         for (const entry of entries) {
-            if (!entry.isDirectory()) continue;
+            let isDir = entry.isDirectory();
+            if (entry.isSymbolicLink()) {
+                try {
+                    const stat = statSync(join(dir, entry.name));
+                    isDir = stat.isDirectory();
+                } catch {
+                    // Ignore broken symlinks
+                    continue;
+                }
+            }
+            if (!isDir) continue;
 
             const skillMdPath = join(dir, entry.name, 'SKILL.md');
             if (!existsSync(skillMdPath)) continue;

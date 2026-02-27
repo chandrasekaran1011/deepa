@@ -407,10 +407,11 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
         currentAbortController = new AbortController();
 
         try {
+            // Spread config but keep reference to config.autonomy live via loop.ts getter
             const updatedConfig = {
                 ...config,
                 mode: 'exec' as const,
-                autonomy: config.autonomy,
+                get autonomy() { return config.autonomy; },
             };
 
             const messages = await runAgentLoop(userInput, conversationHistory, {

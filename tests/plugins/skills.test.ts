@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { loadSkills, parseFrontmatter, SkillRegistry } from '../../src/plugins/skills.js';
@@ -25,7 +25,7 @@ function makeContext(): ToolContext {
         cwd: TEST_DIR,
         autonomy: 'high',
         confirmAction: async () => true,
-        log: () => {},
+        log: () => { },
     };
 }
 
@@ -276,6 +276,28 @@ description: Has a SKILL.md
         it('returns empty registry when no skills directories exist', () => {
             const registry = loadSkills(TEST_DIR, [join(TEST_DIR, 'nonexistent')]);
             expect(registry.size).toBe(0);
+        });
+
+        it('loads skills from symlinked directories', () => {
+            const realDir = join(TEST_DIR, 'real-skills');
+            const linkDir = join(TEST_DIR, 'linked-skills');
+            mkdirSync(realDir, { recursive: true });
+            mkdirSync(linkDir, { recursive: true });
+
+            const targetSkillDir = join(realDir, 'symlinked-skill');
+            mkdirSync(targetSkillDir, { recursive: true });
+            writeFileSync(join(targetSkillDir, 'SKILL.md'), `---
+name: symlinked-skill
+description: Loaded via symlink
+---
+
+Body.`);
+
+            symlinkSync(targetSkillDir, join(linkDir, 'symlinked-skill'), 'dir');
+
+            const registry = loadSkills(TEST_DIR, [linkDir]);
+            expect(registry.size).toBe(1);
+            expect(registry.get('symlinked-skill')).toBeDefined();
         });
 
         it('last-wins when duplicate skill names from different directories', () => {

@@ -25,7 +25,9 @@ export function loadPlugins(cwd: string): LoadedPlugin[] {
     const plugins: LoadedPlugin[] = [];
     const dirs = [
         join(homedir(), '.deepa', 'plugins'),
+        join(homedir(), '.agents', 'plugins'),
         join(cwd, '.deepa', 'plugins'),
+        join(cwd, '.agents', 'plugins'),
     ];
 
     for (const dir of dirs) {
