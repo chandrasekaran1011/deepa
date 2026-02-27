@@ -28,6 +28,7 @@ import {
     printAssistant,
     printError,
     printInfo,
+    printImageAttachment,
     printTokenUsage,
     promptUser,
     promptInput,
@@ -37,6 +38,10 @@ import {
     listenForEscape,
 } from './ui/renderer.js';
 import type { Message, AgentMode } from './types.js';
+import { loadInputHistory, saveInputHistory, appendToHistory } from './ui/history.js';
+import { StreamingMarkdownRenderer } from './ui/stream-renderer.js';
+import { isImagePath, loadImageAsBase64, extractImagePaths, clipboardHasImage, loadImageFromClipboard } from './ui/image.js';
+import type { MessageContent, ImageContent } from './types.js';
 
 // Import built-in tools
 import { fileReadTool } from './tools/file-read.js';
@@ -364,12 +369,13 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
     let conversationHistory: Message[] = session.messages;
 
     // Handle initial prompt or interactive mode
-    const processMessage = async (userInput: string): Promise<void> => {
+    const processMessage = async (userInput: string | MessageContent[]): Promise<void> => {
         // Listen for Escape key to cancel the current operation
         const { controller, cleanup } = listenForEscape();
 
         startSpinner('thinking…');
         let streamedText = '';
+        const mdRenderer = new StreamingMarkdownRenderer();
 
         try {
             const updatedConfig = { ...config, mode: currentMode };
@@ -385,10 +391,14 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                 confirmAction,
                 onText: (text) => {
                     stopSpinner();
-                    process.stdout.write(text);
+                    const rendered = mdRenderer.feed(text);
+                    if (rendered) process.stdout.write(rendered);
                     streamedText += text;
                 },
                 onToolCall: (name, args) => {
+                    // Flush any buffered markdown before tool call display
+                    const remaining = mdRenderer.flush();
+                    if (remaining) process.stdout.write(remaining);
                     printToolCall(name, args);
                 },
                 onToolResult: (name, result, isError) => {
@@ -399,10 +409,9 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                 },
             });
 
-            // If we streamed text, add a newline
-            if (streamedText) {
-                console.log('');
-            }
+            // Flush any remaining buffered markdown
+            const remaining = mdRenderer.flush();
+            if (remaining) process.stdout.write(remaining);
 
             conversationHistory = messages;
             session.messages = messages;
@@ -428,10 +437,16 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
     }
 
     // Interactive REPL
+    let inputHistory = loadInputHistory();
+
     while (true) {
-        const input = await promptInput();
+        const input = await promptInput(inputHistory);
 
         if (!input) continue;
+
+        // Track input history (persist across sessions)
+        inputHistory = appendToHistory(inputHistory, input);
+        saveInputHistory(inputHistory);
 
         // Handle slash commands
         if (input.startsWith('/')) {
@@ -626,15 +641,87 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                     }
                     break;
 
-                case 'config-ui':
+                case 'image': {
+                    const imgPath = args.join(' ').trim();
+                    if (!imgPath) {
+                        printError('Usage: /image <path-to-image> [message]');
+                        break;
+                    }
+                    // Split: first arg is path, rest is message
+                    const imgFilePath = args[0];
+                    const imgMessage = args.slice(1).join(' ') || 'Describe this image.';
+                    const imgResult = loadImageAsBase64(imgFilePath, cwd);
+                    if (!imgResult) {
+                        printError(`Cannot load image: ${imgFilePath}`);
+                        break;
+                    }
+                    if (imgResult.warning) printInfo(imgResult.warning);
+                    printImageAttachment(imgFilePath);
+                    const imgContent: MessageContent[] = [
+                        { type: 'text', text: imgMessage },
+                        imgResult.image,
+                    ];
+                    await processMessage(imgContent);
+                    break;
+                }
+
+                case 'paste': {
+                    if (!clipboardHasImage()) {
+                        printError('No image found on clipboard. Copy an image first (e.g., screenshot), then try /paste');
+                        break;
+                    }
+                    const clipResult = loadImageFromClipboard();
+                    if (!clipResult) {
+                        printError('Failed to read image from clipboard');
+                        break;
+                    }
+                    printImageAttachment(clipResult.fileName);
+                    const pasteMsg = args.join(' ').trim() || 'Describe this image.';
+                    const pasteContent: MessageContent[] = [
+                        { type: 'text', text: pasteMsg },
+                        clipResult.image,
+                    ];
+                    await processMessage(pasteContent);
+                    break;
+                }
+
+                case 'config-ui': {
                     const port = parseInt(args[0] || '3000', 10);
                     await startConfigServer(port);
                     break;
+                }
 
                 default:
                     printInfo(`unknown command: /${cmd}  ·  /help for available commands`);
             }
             continue;
+        }
+
+        // Auto-detect image paths in user input
+        const { text: textPart, paths: imagePaths } = extractImagePaths(input);
+        if (imagePaths.length > 0) {
+            const contentParts: MessageContent[] = [];
+            if (textPart) {
+                contentParts.push({ type: 'text', text: textPart });
+            } else {
+                contentParts.push({ type: 'text', text: 'Describe this image.' });
+            }
+            let hasImages = false;
+            for (const imgPath of imagePaths) {
+                const imgResult = loadImageAsBase64(imgPath, cwd);
+                if (imgResult) {
+                    if (imgResult.warning) printInfo(imgResult.warning);
+                    printImageAttachment(imgPath);
+                    contentParts.push(imgResult.image);
+                    hasImages = true;
+                } else {
+                    printError(`Cannot load image: ${imgPath}`);
+                }
+            }
+            if (hasImages) {
+                await processMessage(contentParts);
+                continue;
+            }
         }
 
         await processMessage(input);

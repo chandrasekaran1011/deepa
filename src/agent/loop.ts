@@ -1,7 +1,7 @@
 // ─── Core agentic loop ───
 // think → act → verify, streaming output
 
-import type { Message, ToolContext, ToolCallContent, ToolResultContent, DeepaConfig } from '../types.js';
+import type { Message, MessageContent, ToolContext, ToolCallContent, ToolResultContent, DeepaConfig } from '../types.js';
 import type { LLMProvider } from '../providers/base.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { buildSystemPrompt } from './prompts.js';
@@ -66,7 +66,7 @@ function salvageTruncatedFileWrite(rawArgs: string): { args: Record<string, unkn
 }
 
 export async function runAgentLoop(
-    userMessage: string,
+    userMessage: string | MessageContent[],
     history: Message[],
     options: LoopOptions,
 ): Promise<Message[]> {

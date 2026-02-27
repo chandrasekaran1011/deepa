@@ -6,7 +6,7 @@ import { createInterface, emitKeypressEvents } from 'readline';
 
 // ─── Colour palette ───────────────────────────────────────
 
-const C = {
+export const C = {
     primary: chalk.hex('#7C3AED'),      // violet  — brand colour
     accent: chalk.hex('#06B6D4'),      // cyan
     success: chalk.hex('#10B981'),      // emerald
@@ -63,7 +63,7 @@ export function stopSpinner(success?: string): void {
 
 // ─── User Input ───────────────────────────────────────────
 
-export async function promptUser(prompt: string = '❯ '): Promise<string> {
+export async function promptUser(prompt: string = '❯ ', history?: string[]): Promise<string> {
     // Ensure stdin is in line mode and active before creating readline
     if (process.stdin.isTTY && process.stdin.isRaw) {
         process.stdin.setRawMode(false);
@@ -72,7 +72,13 @@ export async function promptUser(prompt: string = '❯ '): Promise<string> {
         process.stdin.resume();
     }
 
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        history: history ?? [],
+        historySize: 500,
+        removeHistoryDuplicates: true,
+    });
     return new Promise((resolve) => {
         rl.question(prompt, (answer) => {
             rl.close();
@@ -92,17 +98,23 @@ export async function confirmAction(description: string): Promise<boolean | stri
         console.log(C.muted(`  │ `) + chalk.dim(line));
     }
     console.log(C.warn('  └──────────────────────────────────────────────────────'));
+    console.log();
 
-    const answer = await promptUser(C.warn('  Allow? ') + chalk.dim('(y / n / feedback)  ') + C.accent('❯ '));
-    const lower = answer.toLowerCase().trim();
+    const { selectPrompt } = await import('./select.js');
+    const choice = await selectPrompt([
+        { label: 'Allow', value: 'allow', hint: 'proceed with this action' },
+        { label: 'Deny', value: 'deny', hint: 'skip this action' },
+        { label: 'Edit', value: 'edit', hint: 'provide feedback' },
+    ]);
 
     let result: boolean | string;
-    if (lower === 'y' || lower === 'yes') {
+    if (choice === 'allow') {
         result = true;
-    } else if (lower === 'n' || lower === 'no' || lower === '') {
-        result = false;
+    } else if (choice === 'edit') {
+        const feedback = await promptUser(C.accent('  feedback ') + C.muted('❯ '));
+        result = feedback || false;
     } else {
-        result = answer;
+        result = false;
     }
 
     if (result === true && wasSpinning) startSpinner(spinnerText);
@@ -372,8 +384,8 @@ export function printAssistant(text: string): void {
 
 // ─── Input prompt ─────────────────────────────────────────
 
-export async function promptInput(): Promise<string> {
-    return promptUser('\n' + C.primary('  ◆ ') + C.bright.bold('you  ') + C.muted('❯ '));
+export async function promptInput(history?: string[]): Promise<string> {
+    return promptUser('\n' + C.primary('  ◆ ') + C.bright.bold('you  ') + C.muted('❯ '), history);
 }
 
 // ─── Status / error ───────────────────────────────────────
@@ -389,6 +401,15 @@ export function printSuccess(message: string): void {
 
 export function printInfo(message: string): void {
     console.log('  ' + C.accent('·  ') + chalk.dim(message));
+}
+
+export function printImageAttachment(fileName: string): void {
+    const name = fileName.length > 40 ? '…' + fileName.slice(-39) : fileName;
+    console.log(
+        '\n  ' + C.accent('📎 ') +
+        C.bright.bold('attached  ') +
+        C.muted(name),
+    );
 }
 
 // ─── Token usage line ─────────────────────────────────────
@@ -452,6 +473,8 @@ export function printHelp(): void {
     console.log();
 
     section('Other');
+    cmd('image <path> [msg]', 'send an image to the assistant');
+    cmd('paste [msg]', 'send clipboard image (macOS)');
     cmd('config-ui', 'open web config UI (localhost:3000)');
     console.log();
 }

@@ -3,7 +3,7 @@
 import type { LLMProvider, ChatOptions } from './base.js';
 import type {
     Message, MessageContent, StreamChunk, ToolDefinition,
-    TextContent, ToolCallContent, ToolResultContent,
+    TextContent, ImageContent, ToolCallContent, ToolResultContent,
 } from '../types.js';
 
 const ANTHROPIC_API_VERSION = '2024-10-22';
@@ -255,13 +255,24 @@ export class AnthropicProvider implements LLMProvider {
                 continue;
             }
 
-            // User message
-            result.push({
-                role: 'user',
-                content: contents
-                    .filter((c): c is TextContent => c.type === 'text')
-                    .map((t) => ({ type: 'text', text: t.text })),
-            });
+            // User message (may include text and images)
+            const userBlocks: unknown[] = [];
+            for (const c of contents) {
+                if (c.type === 'text') {
+                    userBlocks.push({ type: 'text', text: (c as TextContent).text });
+                } else if (c.type === 'image') {
+                    const img = c as ImageContent;
+                    userBlocks.push({
+                        type: 'image',
+                        source: {
+                            type: 'base64',
+                            media_type: img.source.mediaType,
+                            data: img.source.data,
+                        },
+                    });
+                }
+            }
+            result.push({ role: 'user', content: userBlocks });
         }
 
         return result;

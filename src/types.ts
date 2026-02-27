@@ -21,7 +21,16 @@ export interface ToolResultContent {
     isError?: boolean;
 }
 
-export type MessageContent = TextContent | ToolCallContent | ToolResultContent;
+export interface ImageContent {
+    type: 'image';
+    source: {
+        type: 'base64';
+        mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+        data: string;
+    };
+}
+
+export type MessageContent = TextContent | ImageContent | ToolCallContent | ToolResultContent;
 
 export interface Message {
     role: 'system' | 'user' | 'assistant' | 'tool';

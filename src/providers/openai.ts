@@ -4,7 +4,7 @@
 import type { LLMProvider, ChatOptions } from './base.js';
 import type {
     Message, MessageContent, StreamChunk, ToolDefinition,
-    TextContent, ToolCallContent, ToolResultContent,
+    TextContent, ImageContent, ToolCallContent, ToolResultContent,
 } from '../types.js';
 
 const MAX_RETRIES = 3;
@@ -234,7 +234,26 @@ export class OpenAIProvider implements LLMProvider {
                 }));
             }
 
-            // User / system — join text
+            // User / system — may include text and images
+            const hasImages = contents.some((c) => c.type === 'image');
+            if (hasImages) {
+                const parts: unknown[] = [];
+                for (const c of contents) {
+                    if (c.type === 'text') {
+                        parts.push({ type: 'text', text: (c as TextContent).text });
+                    } else if (c.type === 'image') {
+                        const img = c as ImageContent;
+                        parts.push({
+                            type: 'image_url',
+                            image_url: {
+                                url: `data:${img.source.mediaType};base64,${img.source.data}`,
+                            },
+                        });
+                    }
+                }
+                return { role: msg.role, content: parts };
+            }
+            // Text-only fallback
             return {
                 role: msg.role,
                 content: contents
