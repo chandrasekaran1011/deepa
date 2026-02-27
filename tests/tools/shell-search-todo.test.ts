@@ -12,7 +12,7 @@ const TEST_DIR = join(tmpdir(), 'deepa-cli-test-shell-' + Date.now());
 function makeContext(): ToolContext {
     return {
         cwd: TEST_DIR,
-        autonomy: 'auto',
+        autonomy: 'high',
         confirmAction: async () => true,
         log: () => { },
     };
@@ -50,7 +50,7 @@ describe('Shell Tool', () => {
     });
 
     it('has dangerous safety level', () => {
-        expect(shellTool.safetyLevel).toBe('dangerous');
+        expect(shellTool.riskLevel).toBe('high');
     });
 
     // ─── Inline script auto-conversion (exhaustive) ───

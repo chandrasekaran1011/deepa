@@ -13,7 +13,7 @@ import type { StreamChunk, DeepaConfig, Message } from '../../src/types.js';
 function makeConfig(overrides: Partial<DeepaConfig> = {}): DeepaConfig {
     return {
         provider: { type: 'openai', model: 'gpt-4o', maxTokens: 4096 },
-        autonomy: 'auto',
+        autonomy: 'high',
         mode: 'chat',
         mcpServers: {},
         verbose: false,
@@ -49,21 +49,21 @@ function makeRegistry(): ToolRegistry {
         name: 'echo',
         description: 'Echo a message',
         parameters: z.object({ msg: z.string() }),
-        safetyLevel: 'safe',
+        riskLevel: 'low',
         execute: async (params) => ({ content: `echoed: ${(params as { msg: string }).msg}` }),
     });
     registry.register({
         name: 'fail_tool',
         description: 'Always fails',
         parameters: z.object({}),
-        safetyLevel: 'safe',
+        riskLevel: 'low',
         execute: async () => ({ content: 'tool error', isError: true }),
     });
     registry.register({
         name: 'big_output',
         description: 'Returns large output',
         parameters: z.object({}),
-        safetyLevel: 'safe',
+        riskLevel: 'low',
         execute: async () => ({ content: 'x'.repeat(20_000) }),
     });
     return registry;

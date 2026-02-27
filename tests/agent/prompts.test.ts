@@ -59,7 +59,7 @@ describe('buildSystemPrompt', () => {
 
         it('exec mode includes mandatory planning step', () => {
             const prompt = buildSystemPrompt({ ...BASE_OPTS, mode: 'exec' });
-            expect(prompt).toContain('PLANNING (for multi-step tasks)');
+            expect(prompt).toContain('PLANNING (MANDATORY FIRST STEP)');
         });
 
         it('exec mode includes verification step', () => {

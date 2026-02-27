@@ -23,7 +23,7 @@ const TEST_DIR = join(tmpdir(), 'deepa-skills-test-' + Date.now());
 function makeContext(): ToolContext {
     return {
         cwd: TEST_DIR,
-        autonomy: 'auto',
+        autonomy: 'high',
         confirmAction: async () => true,
         log: () => {},
     };
@@ -429,7 +429,7 @@ description: Version 2 from second dir
         it('is registered with safe safety level', () => {
             const registry = new SkillRegistry();
             const tool = createUseSkillTool(registry);
-            expect(tool.safetyLevel).toBe('safe');
+            expect(tool.riskLevel).toBe('low');
         });
     });
 

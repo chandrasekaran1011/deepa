@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { ToolContext } from '../../src/types.js';
 
 function makeContext(
-    autonomy: 'suggest' | 'ask' | 'auto',
+    autonomy: 'low' | 'medium' | 'high',
     confirmAction?: (desc: string) => Promise<boolean | string>,
 ): ToolContext {
     return {
@@ -24,7 +24,7 @@ function makeRegistry() {
         name: 'safe_tool',
         description: 'Safe tool',
         parameters: z.object({}),
-        safetyLevel: 'safe',
+        riskLevel: 'low',
         execute: async () => ({ content: 'safe_result' }),
     });
 
@@ -32,7 +32,7 @@ function makeRegistry() {
         name: 'cautious_tool',
         description: 'Cautious tool',
         parameters: z.object({}),
-        safetyLevel: 'cautious',
+        riskLevel: 'medium',
         execute: async () => ({ content: 'cautious_result' }),
     });
 
@@ -40,7 +40,7 @@ function makeRegistry() {
         name: 'dangerous_tool',
         description: 'Dangerous tool',
         parameters: z.object({}),
-        safetyLevel: 'dangerous',
+        riskLevel: 'very-high',
         execute: async () => ({ content: 'dangerous_result' }),
     });
 
@@ -48,7 +48,7 @@ function makeRegistry() {
         name: 'big_tool',
         description: 'Returns 20k chars',
         parameters: z.object({}),
-        safetyLevel: 'safe',
+        riskLevel: 'low',
         execute: async () => ({ content: 'A'.repeat(20_000) }),
     });
 
@@ -69,26 +69,26 @@ describe('Registry autonomy gate', () => {
     describe('suggest mode — ALL tools need confirmation', () => {
         it('safe tool asks for confirmation', async () => {
             const confirm = vi.fn(async () => true as const);
-            await registry.execute('safe_tool', {}, makeContext('suggest', confirm));
+            await registry.execute('safe_tool', {}, makeContext('low', confirm));
             expect(confirm).toHaveBeenCalledOnce();
         });
 
         it('cautious tool asks for confirmation', async () => {
             const confirm = vi.fn(async () => true as const);
-            await registry.execute('cautious_tool', {}, makeContext('suggest', confirm));
+            await registry.execute('cautious_tool', {}, makeContext('low', confirm));
             expect(confirm).toHaveBeenCalledOnce();
         });
 
         it('dangerous tool asks for confirmation', async () => {
             const confirm = vi.fn(async () => true as const);
-            await registry.execute('dangerous_tool', {}, makeContext('suggest', confirm));
+            await registry.execute('dangerous_tool', {}, makeContext('low', confirm));
             expect(confirm).toHaveBeenCalledOnce();
         });
 
         it('cancels execution when user returns false', async () => {
             const result = await registry.execute(
                 'safe_tool', {},
-                makeContext('suggest', async () => false),
+                makeContext('low', async () => false),
             );
             expect(result.isError).toBe(true);
             expect(result.content).toContain('cancelled');
@@ -97,30 +97,31 @@ describe('Registry autonomy gate', () => {
         it('returns user feedback when user provides a string', async () => {
             const result = await registry.execute(
                 'safe_tool', {},
-                makeContext('suggest', async () => 'use a different approach'),
+                makeContext('low', async () => 'use a different approach'),
             );
             expect(result.isError).toBe(true);
             expect(result.content).toContain('use a different approach');
         });
     });
 
-    describe('ask mode — safe auto, cautious/dangerous ask', () => {
-        it('safe tool runs without confirmation', async () => {
+    describe('medium mode — low/medium auto, high/very-high ask', () => {
+        it('safe tool (low risk) runs without confirmation', async () => {
             const confirm = vi.fn(async () => true as const);
-            const result = await registry.execute('safe_tool', {}, makeContext('ask', confirm));
+            const result = await registry.execute('safe_tool', {}, makeContext('medium', confirm));
             expect(confirm).not.toHaveBeenCalled();
             expect(result.content).toBe('safe_result');
         });
 
-        it('cautious tool asks for confirmation', async () => {
+        it('cautious tool (medium risk) runs without confirmation', async () => {
             const confirm = vi.fn(async () => true as const);
-            await registry.execute('cautious_tool', {}, makeContext('ask', confirm));
-            expect(confirm).toHaveBeenCalledOnce();
+            const result = await registry.execute('cautious_tool', {}, makeContext('medium', confirm));
+            expect(confirm).not.toHaveBeenCalled();
+            expect(result.content).toBe('cautious_result');
         });
 
-        it('dangerous tool asks for confirmation', async () => {
+        it('dangerous tool (very-high risk) asks for confirmation', async () => {
             const confirm = vi.fn(async () => true as const);
-            await registry.execute('dangerous_tool', {}, makeContext('ask', confirm));
+            await registry.execute('dangerous_tool', {}, makeContext('medium', confirm));
             expect(confirm).toHaveBeenCalledOnce();
         });
     });
@@ -128,21 +129,21 @@ describe('Registry autonomy gate', () => {
     describe('auto mode — only dangerous asks', () => {
         it('safe tool runs without confirmation', async () => {
             const confirm = vi.fn(async () => true as const);
-            const result = await registry.execute('safe_tool', {}, makeContext('auto', confirm));
+            const result = await registry.execute('safe_tool', {}, makeContext('high', confirm));
             expect(confirm).not.toHaveBeenCalled();
             expect(result.content).toBe('safe_result');
         });
 
         it('cautious tool runs without confirmation', async () => {
             const confirm = vi.fn(async () => true as const);
-            const result = await registry.execute('cautious_tool', {}, makeContext('auto', confirm));
+            const result = await registry.execute('cautious_tool', {}, makeContext('high', confirm));
             expect(confirm).not.toHaveBeenCalled();
             expect(result.content).toBe('cautious_result');
         });
 
         it('dangerous tool asks for confirmation even in auto mode', async () => {
             const confirm = vi.fn(async () => true as const);
-            await registry.execute('dangerous_tool', {}, makeContext('auto', confirm));
+            await registry.execute('dangerous_tool', {}, makeContext('high', confirm));
             expect(confirm).toHaveBeenCalledOnce();
         });
     });
@@ -154,25 +155,25 @@ describe('Registry output truncation', () => {
     const registry = makeRegistry();
 
     it('truncates output exceeding 8000 chars', async () => {
-        const result = await registry.execute('big_tool', {}, makeContext('auto'));
+        const result = await registry.execute('big_tool', {}, makeContext('high'));
         expect(result.content.length).toBeLessThan(20_000);
         expect(result.content).toContain('truncated');
     });
 
     it('preserves the first 8000 chars of output', async () => {
-        const result = await registry.execute('big_tool', {}, makeContext('auto'));
+        const result = await registry.execute('big_tool', {}, makeContext('high'));
         // First 8000 chars should be all 'A's
         expect(result.content.startsWith('A'.repeat(100))).toBe(true);
     });
 
     it('does not truncate output under 8000 chars', async () => {
-        const result = await registry.execute('safe_tool', {}, makeContext('auto'));
+        const result = await registry.execute('safe_tool', {}, makeContext('high'));
         expect(result.content).toBe('safe_result');
         expect(result.content).not.toContain('truncated');
     });
 
     it('mentions character count in truncation notice', async () => {
-        const result = await registry.execute('big_tool', {}, makeContext('auto'));
+        const result = await registry.execute('big_tool', {}, makeContext('high'));
         expect(result.content).toMatch(/\d+.*characters omitted/i);
     });
 });

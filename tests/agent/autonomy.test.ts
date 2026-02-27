@@ -4,29 +4,30 @@ import { requiresConfirmation, describeAutonomy } from '../../src/agent/autonomy
 describe('Autonomy System', () => {
     describe('requiresConfirmation', () => {
         it('suggest mode requires confirmation for everything', () => {
-            expect(requiresConfirmation('suggest', 'safe')).toBe(true);
-            expect(requiresConfirmation('suggest', 'cautious')).toBe(true);
-            expect(requiresConfirmation('suggest', 'dangerous')).toBe(true);
+            expect(requiresConfirmation('low', 'low')).toBe(true);
+            expect(requiresConfirmation('low', 'medium')).toBe(true);
+            expect(requiresConfirmation('low', 'very-high')).toBe(true);
         });
 
-        it('ask mode auto-runs safe, asks for others', () => {
-            expect(requiresConfirmation('ask', 'safe')).toBe(false);
-            expect(requiresConfirmation('ask', 'cautious')).toBe(true);
-            expect(requiresConfirmation('ask', 'dangerous')).toBe(true);
+        it('medium autonomy auto-approves low/medium risk, asks for high+', () => {
+            expect(requiresConfirmation('medium', 'low')).toBe(false);
+            expect(requiresConfirmation('medium', 'medium')).toBe(false);
+            expect(requiresConfirmation('medium', 'high')).toBe(true);
+            expect(requiresConfirmation('medium', 'very-high')).toBe(true);
         });
 
         it('auto mode only asks for dangerous', () => {
-            expect(requiresConfirmation('auto', 'safe')).toBe(false);
-            expect(requiresConfirmation('auto', 'cautious')).toBe(false);
-            expect(requiresConfirmation('auto', 'dangerous')).toBe(true);
+            expect(requiresConfirmation('high', 'low')).toBe(false);
+            expect(requiresConfirmation('high', 'medium')).toBe(false);
+            expect(requiresConfirmation('high', 'very-high')).toBe(true);
         });
     });
 
     describe('describeAutonomy', () => {
         it('returns human-readable descriptions', () => {
-            expect(describeAutonomy('suggest')).toContain('approval');
-            expect(describeAutonomy('ask')).toContain('safe');
-            expect(describeAutonomy('auto')).toContain('autonomy');
+            expect(describeAutonomy('low')).toContain('approval');
+            expect(describeAutonomy('medium')).toContain('automatic');
+            expect(describeAutonomy('high')).toContain('autonomy');
         });
     });
 });

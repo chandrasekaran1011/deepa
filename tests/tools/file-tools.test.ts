@@ -13,7 +13,7 @@ const TEST_DIR = join(tmpdir(), 'deepa-cli-test-' + Date.now());
 function makeContext(): ToolContext {
     return {
         cwd: TEST_DIR,
-        autonomy: 'auto',
+        autonomy: 'high',
         confirmAction: async () => true,
         log: () => { },
     };

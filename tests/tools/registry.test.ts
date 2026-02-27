@@ -3,7 +3,7 @@ import { ToolRegistry } from '../../src/tools/registry.js';
 import { z } from 'zod';
 import type { ToolResult, ToolContext } from '../../src/types.js';
 
-function makeContext(autonomy: 'suggest' | 'ask' | 'auto' = 'auto'): ToolContext {
+function makeContext(autonomy: 'low' | 'medium' | 'high' = 'high'): ToolContext {
     return {
         cwd: '/tmp',
         autonomy,
@@ -19,7 +19,7 @@ describe('Tool Registry', () => {
             name: 'test_tool',
             description: 'A test tool',
             parameters: z.object({ msg: z.string() }),
-            safetyLevel: 'safe',
+            riskLevel: 'low',
             execute: async () => ({ content: 'ok' }),
         });
 
@@ -33,14 +33,14 @@ describe('Tool Registry', () => {
             name: 'tool_a',
             description: 'A',
             parameters: z.object({}),
-            safetyLevel: 'safe',
+            riskLevel: 'low',
             execute: async () => ({ content: '' }),
         });
         registry.register({
             name: 'tool_b',
             description: 'B',
             parameters: z.object({}),
-            safetyLevel: 'safe',
+            riskLevel: 'low',
             execute: async () => ({ content: '' }),
         });
 
@@ -53,7 +53,7 @@ describe('Tool Registry', () => {
             name: 'greet',
             description: 'Say hello',
             parameters: z.object({ name: z.string() }),
-            safetyLevel: 'safe',
+            riskLevel: 'low',
             execute: async () => ({ content: 'hi' }),
         });
 
@@ -70,7 +70,7 @@ describe('Tool Registry', () => {
             name: 'echo',
             description: 'Echo back',
             parameters: z.object({ msg: z.string() }),
-            safetyLevel: 'safe',
+            riskLevel: 'low',
             execute: async (params) => {
                 const { msg } = params as { msg: string };
                 return { content: `echo: ${msg}` };
@@ -94,7 +94,7 @@ describe('Tool Registry', () => {
             name: 'typed',
             description: 'Typed tool',
             parameters: z.object({ count: z.number() }),
-            safetyLevel: 'safe',
+            riskLevel: 'low',
             execute: async () => ({ content: 'ok' }),
         });
 

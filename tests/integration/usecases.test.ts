@@ -32,7 +32,7 @@ const WORKSPACE = join(tmpdir(), `deepa-usecase-${Date.now()}`);
 function makeConfig(mode: 'chat' | 'plan' | 'exec' = 'exec'): DeepaConfig {
     return {
         provider: { type: 'local', model: 'mock', maxTokens: 4096 },
-        autonomy: 'auto',
+        autonomy: 'high',
         mode,
         mcpServers: {},
         verbose: false,

@@ -31,7 +31,7 @@ describe('Config System', () => {
         const config = loadConfig(TEST_DIR);
         expect(config.provider.type).toBe('openai');
         expect(config.provider.model).toBe('gpt-4o');
-        expect(config.autonomy).toBe('ask');
+        expect(config.autonomy).toBe('medium');
         expect(config.mode).toBe('exec');
         expect(config.verbose).toBe(false);
     });
@@ -41,14 +41,14 @@ describe('Config System', () => {
             join(TEST_DIR, '.deepa.json'),
             JSON.stringify({
                 provider: { type: 'anthropic', model: 'claude-sonnet-4-20250514' },
-                autonomy: 'auto',
+                autonomy: 'high',
             }),
         );
 
         const config = loadConfig(TEST_DIR);
         expect(config.provider.type).toBe('anthropic');
         expect(config.provider.model).toBe('claude-sonnet-4-20250514');
-        expect(config.autonomy).toBe('auto');
+        expect(config.autonomy).toBe('high');
     });
 
     it('CLI flags override file config', () => {
