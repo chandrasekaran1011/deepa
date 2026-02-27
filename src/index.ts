@@ -19,6 +19,8 @@ import {
 } from './store/models.js';
 import { addMcpServer, removeMcpServer, listMcpServers } from './store/mcp.js';
 import { startConfigServer } from './server/index.js';
+import { startUIServer } from './server/ui-server.js';
+import open from 'open';
 import {
     printHeader,
     printConfig,
@@ -207,6 +209,18 @@ program
     .action(async (options: { port: string }) => {
         const port = parseInt(options.port, 10);
         await startConfigServer(port);
+    });
+
+// ─── Chat UI subcommand ───
+
+program
+    .command('ui')
+    .description('Launch the Deepa graphical web interface')
+    .option('-p, --port <number>', 'Port to run the UI server on', '3001')
+    .action(async (options: { port: string }, flags: CLIFlags) => {
+        const port = parseInt(options.port, 10);
+        await startUIServer(port, flags);
+        await open(`http://localhost:${port}`);
     });
 
 // ─── Plan/exec subcommands ───

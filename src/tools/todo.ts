@@ -10,6 +10,7 @@ import type { ToolResult, ToolContext } from '../types.js';
 const todoItemSchema = z.object({
     content: z.string().min(1).describe('Imperative task description (e.g., "Run tests", "Fix login bug")'),
     status: z.enum(['pending', 'in_progress', 'completed']).describe('Task state'),
+    activeForm: z.string().optional().describe('Present-tense label shown during execution (e.g., "Running tests", "Fixing login bug")'),
 });
 
 const parameters = z.object({
