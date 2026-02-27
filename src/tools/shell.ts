@@ -14,7 +14,26 @@ const parameters = z.object({
     command: z.string().describe('Shell command to execute'),
     cwd: z.string().nullish().describe('Working directory (optional)'),
     timeout: z.number().optional().default(30000).describe('Timeout in milliseconds (default: 30s)'),
+    background: z.boolean().optional().default(false).describe('Run command in background (e.g. for servers)'),
 });
+
+// Registry for background processes to ensure they are killed on exit
+const activeBackgroundProcesses: number[] = [];
+
+export function killBackgroundProcesses(): void {
+    for (const pid of activeBackgroundProcesses) {
+        try {
+            // Negative PID kills the process group
+            process.kill(-pid);
+        } catch {
+            try {
+                process.kill(pid); // Fallback
+            } catch {
+                // Ignore if process is already dead
+            }
+        }
+    }
+}
 
 // ─── Inline script detection and extraction ───
 
@@ -44,15 +63,15 @@ const FLAG_PATTERNS: Array<{
     runtimeGroup: number;
     codeGroup: number;
 }> = [
-    // node -e '...' / node -e "..." / node --eval '...'
-    { regex: /^(node)\s+(?:-e|--eval)\s+(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/, runtimeGroup: 1, codeGroup: 2 },
-    // python3 -c '...' / python -c '...'
-    { regex: /^(python3?)\s+-c\s+(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/, runtimeGroup: 1, codeGroup: 2 },
-    // ruby -e '...'
-    { regex: /^(ruby)\s+-e\s+(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/, runtimeGroup: 1, codeGroup: 2 },
-    // perl -e '...'
-    { regex: /^(perl)\s+-e\s+(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/, runtimeGroup: 1, codeGroup: 2 },
-];
+        // node -e '...' / node -e "..." / node --eval '...'
+        { regex: /^(node)\s+(?:-e|--eval)\s+(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/, runtimeGroup: 1, codeGroup: 2 },
+        // python3 -c '...' / python -c '...'
+        { regex: /^(python3?)\s+-c\s+(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/, runtimeGroup: 1, codeGroup: 2 },
+        // ruby -e '...'
+        { regex: /^(ruby)\s+-e\s+(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/, runtimeGroup: 1, codeGroup: 2 },
+        // perl -e '...'
+        { regex: /^(perl)\s+-e\s+(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/, runtimeGroup: 1, codeGroup: 2 },
+    ];
 
 /** Pattern 2: heredoc — `python3 - <<'DELIM'\n...\nDELIM` or `python3 <<'DELIM'\n...\nDELIM` */
 const HEREDOC_REGEX = /^(node|python3?|ruby|perl)\s+(?:-\s+)?<<-?\s*'?(\w+)'?\s*\n([\s\S]*?)\n\2\s*$/;
@@ -98,22 +117,33 @@ function detectInlineScript(command: string): InlineScript | null {
     return null;
 }
 
-function runCommand(command: string, workDir: string, timeout: number): Promise<ToolResult> {
+function runCommand(command: string, workDir: string, timeout: number, background = false): Promise<ToolResult> {
     return new Promise<ToolResult>((resolvePromise) => {
         const child = spawn('sh', ['-c', command], {
             cwd: workDir,
             env: { ...process.env, PAGER: 'cat' },
-            timeout,
+            timeout: background ? undefined : timeout,
+            detached: background,
+            stdio: background ? 'ignore' : 'pipe',
         });
+
+        if (background) {
+            child.unref();
+            if (child.pid) activeBackgroundProcesses.push(child.pid);
+            return resolvePromise({
+                content: `Started background process with PID ${child.pid}`,
+                isError: false,
+            });
+        }
 
         let stdout = '';
         let stderr = '';
 
-        child.stdout.on('data', (data) => {
+        child.stdout?.on('data', (data) => {
             stdout += data.toString();
         });
 
-        child.stderr.on('data', (data) => {
+        child.stderr?.on('data', (data) => {
             stderr += data.toString();
         });
 
@@ -145,10 +175,10 @@ export const shellTool: Tool = {
         'Inline scripts (node -e, python -c, heredocs, echo pipes) are automatically converted to temp files for reliable execution. ' +
         'Prefer writing code to a file with file_write first, then running it.',
     parameters,
-    safetyLevel: 'dangerous',
+    riskLevel: 'high',
 
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
-        const { command, cwd, timeout } = params as z.infer<typeof parameters>;
+        const { command, cwd, timeout, background } = params as z.infer<typeof parameters>;
         const workDir = resolvePath(cwd || '.', context.cwd);
 
         // Detect inline scripts and auto-convert to temp files
@@ -162,7 +192,7 @@ export const shellTool: Tool = {
 
             try {
                 writeFileSync(tmpFile, inline.code, 'utf-8');
-                const result = await runCommand(`${inline.runtime} ${tmpFile}`, workDir, timeout);
+                const result = await runCommand(`${inline.runtime} ${tmpFile}`, workDir, timeout, background);
 
                 // Prepend a note so the LLM knows it was auto-converted
                 result.content = `[auto-converted inline script to ${tmpFile}]\n\n${result.content}`;
@@ -173,7 +203,7 @@ export const shellTool: Tool = {
             }
         }
 
-        context.log(`$ ${command}`);
-        return runCommand(command, workDir, timeout);
+        context.log(`$ ${command}${background ? ' [background]' : ''}`);
+        return runCommand(command, workDir, timeout, background);
     },
 };
