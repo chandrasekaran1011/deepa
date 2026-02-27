@@ -86,6 +86,8 @@ function ensureDeepaDir(): void {
     }
 }
 
+const MIN_RECOMMENDED_TOKENS = 16384;
+
 function loadStore(): ModelsStore {
     ensureDeepaDir();
     if (!existsSync(MODELS_FILE)) {
@@ -93,7 +95,19 @@ function loadStore(): ModelsStore {
     }
     try {
         const data = JSON.parse(readFileSync(MODELS_FILE, 'utf-8'));
-        return data as ModelsStore;
+        const store = data as ModelsStore;
+
+        // Auto-migrate models with low maxTokens (old 4096 default)
+        let migrated = false;
+        for (const model of store.models) {
+            if (model.maxTokens < MIN_RECOMMENDED_TOKENS) {
+                model.maxTokens = MIN_RECOMMENDED_TOKENS;
+                migrated = true;
+            }
+        }
+        if (migrated) saveStore(store);
+
+        return store;
     } catch {
         return { version: 1, models: [] };
     }

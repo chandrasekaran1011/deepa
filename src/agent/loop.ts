@@ -26,6 +26,45 @@ export interface LoopOptions {
 
 const MAX_ITERATIONS = 50;
 
+/**
+ * Attempt to salvage a truncated file_write tool call.
+ * Extracts `path` and partial `content` from malformed JSON so the partial
+ * content can be written, and the LLM can continue with append=true.
+ */
+function salvageTruncatedFileWrite(rawArgs: string): { args: Record<string, unknown>; message: string } | null {
+    // Try to extract "path":"..." from the truncated JSON
+    const pathMatch = rawArgs.match(/"path"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (!pathMatch) return null;
+
+    const path = pathMatch[1];
+
+    // Try to extract "content":"... (will be truncated — no closing quote)
+    const contentMatch = rawArgs.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)/);
+    if (!contentMatch || contentMatch[1].length < 50) return null; // too little to bother
+
+    // Unescape the partial content (handle \n, \t, \", \\)
+    let content = contentMatch[1];
+    try {
+        // Add closing quote and parse as JSON string to properly unescape
+        content = JSON.parse(`"${content}"`);
+    } catch {
+        // Manual fallback for common escapes
+        content = content
+            .replace(/\\n/g, '\n')
+            .replace(/\\t/g, '\t')
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\');
+    }
+
+    return {
+        args: { path, content, append: false, createDirectories: true },
+        message: `[Truncation recovered] Wrote ${content.split('\n').length} lines of partial content to "${path}". ` +
+            `The content was cut off by the token limit. ` +
+            `Continue writing the REMAINING content using file_write with path="${path}" and append=true. ` +
+            `Start from where the content was cut off — do NOT repeat what was already written.`,
+    };
+}
+
 export async function runAgentLoop(
     userMessage: string,
     history: Message[],
@@ -113,21 +152,33 @@ export async function runAgentLoop(
                             try {
                                 parsedArgs = JSON.parse(chunk.arguments || '{}');
                             } catch (parseErr) {
-                                const argLen = (chunk.arguments || '').length;
+                                const rawArgs = chunk.arguments || '';
+                                const argLen = rawArgs.length;
                                 if (config.verbose) {
                                     const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-                                    const snippet = (chunk.arguments || '').slice(0, 200);
+                                    const snippet = rawArgs.slice(0, 200);
                                     process.stderr.write(chalk.dim(
                                         `[loop] JSON.parse failed for ${chunk.name}: ${errMsg}\n` +
                                         `[loop] raw args (first 200 chars): ${snippet}\n`,
                                     ));
                                 }
-                                parsedArgs = {};
-                                parseError = `Tool call arguments were truncated (${argLen} chars of JSON, likely cut off by token limit). ` +
-                                    `To fix: break the file into smaller chunks using file_write with append=true. ` +
-                                    `First call: file_write with the first portion (append=false). ` +
-                                    `Then call file_write with append=true for each remaining portion. ` +
-                                    `Alternatively, write a script that generates the content and run it with shell.`;
+
+                                // Try to salvage truncated file_write calls
+                                const salvaged = chunk.name === 'file_write'
+                                    ? salvageTruncatedFileWrite(rawArgs)
+                                    : null;
+
+                                if (salvaged) {
+                                    parsedArgs = salvaged.args;
+                                    parseError = salvaged.message;
+                                } else {
+                                    parsedArgs = {};
+                                    parseError = `Tool call arguments were truncated (${argLen} chars of JSON, likely cut off by token limit). ` +
+                                        `To fix: break the file into smaller chunks using file_write with append=true. ` +
+                                        `First call: file_write with the first portion (append=false). ` +
+                                        `Then call file_write with append=true for each remaining portion. ` +
+                                        `Alternatively, write a script that generates the content and run it with shell.`;
+                                }
                             }
                             pendingToolCalls.push({
                                 id: chunk.id,
@@ -213,8 +264,15 @@ export async function runAgentLoop(
             onToolCall?.(tc.name, tc.parsedArgs);
 
             let result;
-            if (tc.parseError) {
-                // Don't send empty params to registry — give the LLM actionable feedback
+            if (tc.parseError && tc.parsedArgs.path) {
+                // Salvaged truncated file_write — execute with partial content, then guide LLM
+                const writeResult = await tools.execute(tc.name, tc.parsedArgs, toolContext);
+                result = {
+                    content: `${writeResult.content}\n\n${tc.parseError}`,
+                    isError: false,
+                };
+            } else if (tc.parseError) {
+                // Fully failed parse — give the LLM actionable feedback
                 result = { content: `Error: ${tc.parseError}`, isError: true as const };
             } else {
                 result = await tools.execute(tc.name, tc.parsedArgs, toolContext);
