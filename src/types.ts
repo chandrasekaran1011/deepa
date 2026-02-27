@@ -81,7 +81,8 @@ export interface ToolContext {
 // ────────────────── Config ──────────────────
 
 export type ProviderType = 'openai' | 'anthropic' | 'local';
-export type AutonomyLevel = 'suggest' | 'ask' | 'auto';
+export type AutonomyLevel = 'low' | 'medium' | 'high';
+export type SafetyLevel = 'low' | 'medium' | 'high' | 'very-high';
 export type AgentMode = 'chat' | 'plan' | 'exec';
 
 export interface ProviderConfig {

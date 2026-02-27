@@ -18,7 +18,7 @@ export const fileReadTool: Tool = {
     name: 'file_read',
     description: 'Read the contents of a file. Supports optional line range. Returns file content as text.',
     parameters,
-    safetyLevel: 'safe',
+    riskLevel: 'low',
 
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { path: filePath, startLine, endLine } = params as z.infer<typeof parameters>;

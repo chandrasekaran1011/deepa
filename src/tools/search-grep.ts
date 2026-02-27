@@ -19,7 +19,7 @@ export const searchGrepTool: Tool = {
     name: 'search_grep',
     description: 'Search for text patterns across files using ripgrep-style search. Returns matching lines with file names and line numbers.',
     parameters,
-    safetyLevel: 'safe',
+    riskLevel: 'low',
 
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { query, path: searchPath, isRegex, caseInsensitive, includes, maxResults } = params as z.infer<typeof parameters>;

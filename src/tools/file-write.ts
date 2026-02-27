@@ -37,7 +37,7 @@ export const fileWriteTool: Tool = {
         'For large files, write the first chunk with append=false, then subsequent chunks with append=true. ' +
         'For binary/rich formats (.pptx, .xlsx, .pdf, .docx, .png, .jpg, .zip, etc.), write a script and run it with shell.',
     parameters,
-    safetyLevel: 'cautious',
+    riskLevel: 'medium',
 
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { path: filePath, content, append, createDirectories } = params as z.infer<typeof parameters>;

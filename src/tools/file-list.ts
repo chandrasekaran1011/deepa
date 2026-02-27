@@ -62,7 +62,7 @@ export const fileListTool: Tool = {
     name: 'file_list',
     description: 'List directory contents with file sizes. Ignores common build artifacts (node_modules, .git, dist). Supports configurable depth.',
     parameters,
-    safetyLevel: 'safe',
+    riskLevel: 'low',
 
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { path: dirPath, maxDepth, showHidden } = params as z.infer<typeof parameters>;

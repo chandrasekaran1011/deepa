@@ -18,7 +18,7 @@ export const gitWorktreeTool: Tool = {
     name: 'git_worktree',
     description: 'Manage Git Worktrees to create isolated, safe environments for experimental changes or complex refactoring, without polluting the main branch. This allows "multi-threaded" agent workspaces.',
     parameters,
-    safetyLevel: 'cautious', // Require permission before branching/mounting new worktrees
+    riskLevel: 'medium', // Require permission before branching/mounting new worktrees
 
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { action, branchName, path } = params as z.infer<typeof parameters>;

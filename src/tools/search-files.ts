@@ -19,7 +19,7 @@ export const searchFilesTool: Tool = {
     name: 'search_files',
     description: 'Find files and directories by name pattern (glob or regex). Searches are case-insensitive by default. Like the `fd` or `find` command.',
     parameters,
-    safetyLevel: 'safe',
+    riskLevel: 'low',
 
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { pattern, path: searchPath, type, maxDepth, maxResults, isRegex } = params as z.infer<typeof parameters>;

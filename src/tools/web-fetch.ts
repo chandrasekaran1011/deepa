@@ -19,7 +19,7 @@ export const webFetchTool: Tool = {
     name: 'web_fetch',
     description: 'Fetch content from a URL and convert HTML to markdown. Useful for reading documentation, APIs, and web pages.',
     parameters,
-    safetyLevel: 'safe',
+    riskLevel: 'low',
 
     async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
         const { url, maxLength } = params as z.infer<typeof parameters>;

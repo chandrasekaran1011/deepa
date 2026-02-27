@@ -176,14 +176,14 @@ export function printConfig(config: {
         chat: C.accent,
     };
     const autonomyColor: Record<string, ReturnType<typeof chalk.hex>> = {
-        auto: C.tag,
-        ask: C.warn,
-        suggest: C.error,
+        high: C.tag,
+        medium: C.warn,
+        low: C.error,
     };
     const autonomyDesc: Record<string, string> = {
-        auto: 'only dangerous actions require approval',
-        ask: 'cautious + dangerous actions require approval',
-        suggest: 'all actions require approval',
+        high: 'only very-high risk actions require approval',
+        medium: 'high/very-high risk actions require approval',
+        low: 'all actions require approval',
     };
 
     const mc = modeColor[config.mode] ?? C.accent;
@@ -421,7 +421,7 @@ export function printHelp(): void {
     cmd('exec', 'autonomous execution (plan → run → verify)');
     cmd('plan', 'plan only — no file changes');
     cmd('chat', 'conversational mode');
-    cmd('autonomy <level>', 'set autonomy: suggest · ask · auto');
+    cmd('autonomy <level>', 'set autonomy: low · medium · high');
     console.log();
 
     section('Models');

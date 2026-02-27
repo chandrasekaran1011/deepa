@@ -1,8 +1,6 @@
 // ─── Autonomy level management ───
 
-import type { AutonomyLevel } from '../types.js';
-
-export type SafetyLevel = 'safe' | 'cautious' | 'dangerous';
+import type { AutonomyLevel, SafetyLevel } from '../types.js';
 
 /**
  * Determine whether a tool action requires user confirmation
@@ -13,17 +11,19 @@ export function requiresConfirmation(
     safety: SafetyLevel,
 ): boolean {
     switch (autonomy) {
-        case 'suggest':
-            // ALL actions require confirmation
+        case 'low':
+            // low autonomy requires approval for absolutely everything
             return true;
 
-        case 'ask':
-            // Safe actions auto-run, cautious and dangerous require confirmation
-            return safety !== 'safe';
+        case 'medium':
+            // medium autonomy auto-approves low/medium risk. Approves high/very-high risk.
+            if (safety === 'low' || safety === 'medium') return false;
+            return true;
 
-        case 'auto':
-            // Only dangerous actions require confirmation  
-            return safety === 'dangerous';
+        case 'high':
+            // high autonomy auto-approves low/medium/high risk. Only asks for very-high risk.
+            if (safety === 'very-high') return true;
+            return false;
 
         default:
             return true;
@@ -35,11 +35,11 @@ export function requiresConfirmation(
  */
 export function describeAutonomy(level: AutonomyLevel): string {
     switch (level) {
-        case 'suggest':
-            return 'Suggest — every action requires your approval';
-        case 'ask':
-            return 'Ask — safe reads are automatic, writes/commands need approval';
-        case 'auto':
-            return 'Auto — full autonomy, only critical actions need approval';
+        case 'low':
+            return 'Low — all actions require approval';
+        case 'medium':
+            return 'Medium — standard operations are automatic, high risk actions need approval';
+        case 'high':
+            return 'High — full autonomy, only very-high risk actions need approval';
     }
 }

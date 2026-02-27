@@ -37,7 +37,7 @@ export const fileEditTool: Tool = {
     name: 'file_edit',
     description: 'Edit a file by replacing exact text matches. The search text must be unique in the file (to prevent wrong-location edits). If multiple matches exist, either provide more surrounding context to make it unique, or set replaceAll: true.',
     parameters,
-    safetyLevel: 'cautious',
+    riskLevel: 'medium',
 
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { path: filePath, search, replace, replaceAll } = params as z.infer<typeof parameters>;

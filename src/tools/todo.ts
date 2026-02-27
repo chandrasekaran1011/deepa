@@ -78,7 +78,7 @@ export const todoTool: Tool = {
         'Use status: "pending" for not started, "in_progress" for current work (max 1), "completed" for done. ' +
         'Update frequently as you work through tasks.',
     parameters,
-    safetyLevel: 'safe',
+    riskLevel: 'low',
 
     async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
         const { todos } = params as z.infer<typeof parameters>;

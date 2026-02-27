@@ -22,7 +22,7 @@ export function createUseSkillTool(skillRegistry: SkillRegistry): Tool {
             'Call this when a user request matches a skill\'s description. ' +
             'Returns the skill\'s detailed instructions, guidelines, and any referenced resources.',
         parameters,
-        safetyLevel: 'safe',
+        riskLevel: 'low',
 
         async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
             const { name } = params as z.infer<typeof parameters>;

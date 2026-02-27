@@ -98,7 +98,7 @@ async function connectMCPServer(
                 description: `[MCP: ${name}] ${mcpTool.description || mcpTool.name}`,
                 parameters: z.record(z.unknown()), // Accept any params at validation level
                 schemaOverride: mcpTool.inputSchema as Record<string, unknown> | undefined, // Pass true schema to provider Native schema
-                safetyLevel: 'cautious',
+                riskLevel: 'medium', // Default to medium risk for MCP tools unless configured otherwise
 
                 async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
                     try {

@@ -13,7 +13,7 @@ export interface Tool {
     description: string;
     parameters: ZodSchema;
     schemaOverride?: Record<string, unknown>; // Use this raw JSON schema instead of parameters
-    safetyLevel: 'safe' | 'cautious' | 'dangerous';
+    riskLevel: 'low' | 'medium' | 'high' | 'very-high';
     execute(params: unknown, context: ToolContext): Promise<ToolResult>;
 }
 
@@ -102,7 +102,7 @@ export class ToolRegistry {
         }
 
         // Check autonomy using the shared requiresConfirmation function
-        if (requiresConfirmation(context.autonomy, tool.safetyLevel)) {
+        if (requiresConfirmation(context.autonomy, tool.riskLevel)) {
             const response = await context.confirmAction(
                 `Tool "${name}" wants to execute with params: ${JSON.stringify(parsed.data, null, 2)}`,
             );

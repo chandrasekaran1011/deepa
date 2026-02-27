@@ -13,7 +13,7 @@ export const webSearchTool: Tool = {
         query: z.string().describe('The search query'),
         maxResults: z.number().optional().describe('Max results to return (default 8)'),
     }),
-    safetyLevel: 'safe',
+    riskLevel: 'low',
 
     async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
         const { query, maxResults = 8 } = params as { query: string; maxResults?: number };

@@ -18,7 +18,7 @@ const ProjectConfigSchema = z.object({
         baseUrl: z.string().optional(),
         maxTokens: z.number().optional(),
     }).optional(),
-    autonomy: z.enum(['suggest', 'ask', 'auto']).optional(),
+    autonomy: z.enum(['low', 'medium', 'high']).optional(),
     mode: z.enum(['chat', 'plan', 'exec']).optional(),
     verbose: z.boolean().optional(),
 }).passthrough();
@@ -75,7 +75,7 @@ export function loadConfig(cwd: string = process.cwd(), flags: CLIFlags = {}): D
         model: 'gpt-4o',
         maxTokens: 16384,
     };
-    let autonomy: AutonomyLevel = 'ask';
+    let autonomy: AutonomyLevel = 'medium';
     let mode: AgentMode = 'exec'; // Default to DeepAgent mode
     let verbose = false;
 
@@ -115,7 +115,7 @@ export function loadConfig(cwd: string = process.cwd(), flags: CLIFlags = {}): D
             providerConfig.type = p;
         }
     }
-    if (flags.autonomy && ['suggest', 'ask', 'auto'].includes(flags.autonomy)) {
+    if (flags.autonomy && ['low', 'medium', 'high'].includes(flags.autonomy)) {
         autonomy = flags.autonomy as AutonomyLevel;
     }
     if (flags.mode) mode = flags.mode as AgentMode;

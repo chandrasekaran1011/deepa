@@ -45,13 +45,24 @@ import { fileEditTool } from './tools/file-edit.js';
 import { fileListTool } from './tools/file-list.js';
 import { searchGrepTool } from './tools/search-grep.js';
 import { searchFilesTool } from './tools/search-files.js';
-import { shellTool } from './tools/shell.js';
+import { shellTool, killBackgroundProcesses } from './tools/shell.js';
 import { webFetchTool } from './tools/web-fetch.js';
 import { webSearchTool } from './tools/web-search.js';
 import { todoTool } from './tools/todo.js';
 import { gitWorktreeTool } from './tools/worktree.js';
 
 // ────────────────── CLI Setup ──────────────────
+
+// Ensure background processes are cleaned up on exit / signals
+process.on('exit', () => killBackgroundProcesses());
+process.on('SIGINT', () => {
+    killBackgroundProcesses();
+    process.exit(0);
+});
+process.on('SIGTERM', () => {
+    killBackgroundProcesses();
+    process.exit(0);
+});
 
 const program = new Command();
 
@@ -64,7 +75,7 @@ program
     .option('-b, --base-url <url>', 'API base URL')
     .option('-k, --api-key <key>', 'API key')
     .option('-u, --use-model <name>', 'Use a named stored model')
-    .option('-a, --autonomy <level>', 'Autonomy level (suggest, ask, auto)')
+    .option('-a, --autonomy <level>', 'Autonomy level (low, medium, high)')
     .option('--verbose', 'Enable verbose logging')
     .option('--resume', 'Resume the latest session')
     .argument('[prompt...]', 'Initial prompt (optional)')
@@ -435,6 +446,7 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                     console.log('\n  ' + chalk.hex('#7C3AED').bold('◆') + chalk.dim('  see you later\n'));
                     saveSession(session);
                     await disconnectMCPServers(mcpConnections);
+                    killBackgroundProcesses();
                     process.exit(0);
                     break;
 
@@ -561,11 +573,11 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                 }
 
                 case 'autonomy':
-                    if (args[0] && ['suggest', 'ask', 'auto'].includes(args[0])) {
-                        config.autonomy = args[0] as 'suggest' | 'ask' | 'auto';
+                    if (args[0] && ['low', 'medium', 'high'].includes(args[0])) {
+                        config.autonomy = args[0] as 'low' | 'medium' | 'high';
                         printInfo(`autonomy → ${args[0]}`);
                     } else {
-                        printInfo(`autonomy: ${config.autonomy}  ·  options: suggest · ask · auto`);
+                        printInfo(`autonomy: ${config.autonomy}  ·  options: low · medium · high`);
                     }
                     break;
 
