@@ -36,6 +36,7 @@ import {
     startSpinner,
     stopSpinner,
     listenForEscape,
+    CLIPBOARD_PASTE_SIGNAL,
 } from './ui/renderer.js';
 import type { Message, AgentMode } from './types.js';
 import { loadInputHistory, saveInputHistory, appendToHistory } from './ui/history.js';
@@ -440,7 +441,24 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
     let inputHistory = loadInputHistory();
 
     while (true) {
-        const input = await promptInput(inputHistory);
+        const input = await promptInput(inputHistory, () => clipboardHasImage());
+
+        // Handle Ctrl+V clipboard paste
+        if (input === CLIPBOARD_PASTE_SIGNAL) {
+            const clipResult = loadImageFromClipboard();
+            if (!clipResult) {
+                printError('No image found on clipboard. Copy an image first, then press Ctrl+V');
+                continue;
+            }
+            printImageAttachment(clipResult.fileName);
+            const pasteMsg = await promptUser('  message (optional) ❯ ') || 'Describe this image.';
+            const pasteContent: MessageContent[] = [
+                { type: 'text', text: pasteMsg },
+                clipResult.image,
+            ];
+            await processMessage(pasteContent);
+            continue;
+        }
 
         if (!input) continue;
 

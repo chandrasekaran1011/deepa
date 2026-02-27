@@ -63,7 +63,10 @@ export function stopSpinner(success?: string): void {
 
 // ─── User Input ───────────────────────────────────────────
 
-export async function promptUser(prompt: string = '❯ ', history?: string[]): Promise<string> {
+// Magic prefix returned by promptUser when Ctrl+V triggers a clipboard paste
+export const CLIPBOARD_PASTE_SIGNAL = '\x00__CLIPBOARD_PASTE__\x00';
+
+export async function promptUser(prompt: string = '❯ ', history?: string[], clipboardCheck?: () => boolean): Promise<string> {
     // Ensure stdin is in line mode and active before creating readline
     if (process.stdin.isTTY && process.stdin.isRaw) {
         process.stdin.setRawMode(false);
@@ -79,10 +82,44 @@ export async function promptUser(prompt: string = '❯ ', history?: string[]): P
         historySize: 500,
         removeHistoryDuplicates: true,
     });
+
+    // Intercept Ctrl+V to trigger clipboard image paste
+    if (clipboardCheck && process.stdin.isTTY) {
+        const origTtyWrite = (rl as any)._ttyWrite;
+        if (typeof origTtyWrite === 'function') {
+            (rl as any)._ttyWrite = function (s: string, key: any) {
+                if (key && key.ctrl && key.name === 'v') {
+                    if (clipboardCheck()) {
+                        rl.close();
+                        return;
+                    }
+                }
+                origTtyWrite.call(this, s, key);
+            };
+        }
+    }
+
     return new Promise((resolve) => {
+        let closedByCtrlV = false;
+        rl.on('close', () => {
+            if (closedByCtrlV) return; // handled below
+        });
+
+        // Detect Ctrl+V close: readline emits 'close' before 'line'
+        const origClose = rl.close.bind(rl);
+        if (clipboardCheck && process.stdin.isTTY) {
+            rl.close = () => {
+                closedByCtrlV = true;
+                origClose();
+                resolve(CLIPBOARD_PASTE_SIGNAL);
+            };
+        }
+
         rl.question(prompt, (answer) => {
-            rl.close();
-            resolve(answer.trim());
+            if (!closedByCtrlV) {
+                rl.close();
+                resolve(answer.trim());
+            }
         });
     });
 }
@@ -171,7 +208,7 @@ export function printHeader(): void {
     console.log();
 
     // Keyboard hints
-    const hint = 'ENTER to send  •  / for commands  •  ESC to cancel';
+    const hint = 'ENTER to send  •  / for commands  •  Ctrl+V paste image  •  ESC to cancel';
     console.log(center(chalk.hex('#4B5563')(hint), hint.length, cols));
 
     console.log();
@@ -384,8 +421,8 @@ export function printAssistant(text: string): void {
 
 // ─── Input prompt ─────────────────────────────────────────
 
-export async function promptInput(history?: string[]): Promise<string> {
-    return promptUser('\n' + C.primary('  ◆ ') + C.bright.bold('you  ') + C.muted('❯ '), history);
+export async function promptInput(history?: string[], clipboardCheck?: () => boolean): Promise<string> {
+    return promptUser('\n' + C.primary('  ◆ ') + C.bright.bold('you  ') + C.muted('❯ '), history, clipboardCheck);
 }
 
 // ─── Status / error ───────────────────────────────────────
