@@ -84,15 +84,18 @@ export async function promptUser(prompt: string = '❯ ', history?: string[], cl
     });
 
     // Intercept Ctrl+V to trigger clipboard image paste
+    let ctrlVTriggered = false;
     if (clipboardCheck && process.stdin.isTTY) {
         const origTtyWrite = (rl as any)._ttyWrite;
         if (typeof origTtyWrite === 'function') {
             (rl as any)._ttyWrite = function (s: string, key: any) {
                 if (key && key.ctrl && key.name === 'v') {
                     if (clipboardCheck()) {
+                        ctrlVTriggered = true;
                         rl.close();
                         return;
                     }
+                    // No image on clipboard — fall through to normal readline behavior
                 }
                 origTtyWrite.call(this, s, key);
             };
@@ -100,25 +103,26 @@ export async function promptUser(prompt: string = '❯ ', history?: string[], cl
     }
 
     return new Promise((resolve) => {
-        let closedByCtrlV = false;
+        let resolved = false;
+        const safeResolve = (value: string) => {
+            if (resolved) return;
+            resolved = true;
+            resolve(value);
+        };
+
         rl.on('close', () => {
-            if (closedByCtrlV) return; // handled below
+            if (ctrlVTriggered) {
+                safeResolve(CLIPBOARD_PASTE_SIGNAL);
+                return;
+            }
+            // Normal close (Ctrl+C, Ctrl+D) — resolve empty
+            safeResolve('');
         });
 
-        // Detect Ctrl+V close: readline emits 'close' before 'line'
-        const origClose = rl.close.bind(rl);
-        if (clipboardCheck && process.stdin.isTTY) {
-            rl.close = () => {
-                closedByCtrlV = true;
-                origClose();
-                resolve(CLIPBOARD_PASTE_SIGNAL);
-            };
-        }
-
         rl.question(prompt, (answer) => {
-            if (!closedByCtrlV) {
+            if (!ctrlVTriggered) {
+                safeResolve(answer.trim());
                 rl.close();
-                resolve(answer.trim());
             }
         });
     });
