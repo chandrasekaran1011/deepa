@@ -40,6 +40,7 @@ export interface OpenAIProviderConfig {
     baseUrl: string;
     model: string;
     maxTokens?: number;
+    isLocal?: boolean;  // auto-detected: true for ollama/lmstudio/custom
 }
 
 export class OpenAIProvider implements LLMProvider {
@@ -59,13 +60,21 @@ export class OpenAIProvider implements LLMProvider {
         options?: ChatOptions,
         signal?: AbortSignal,
     ): AsyncIterable<StreamChunk> {
+        const maxTokens = options?.maxTokens ?? this.config.maxTokens;
         const body: Record<string, unknown> = {
             model: this.config.model,
             messages: this.convertMessages(messages),
             stream: true,
-            stream_options: { include_usage: true },
-            max_completion_tokens: options?.maxTokens ?? this.config.maxTokens,
         };
+
+        if (this.config.isLocal) {
+            // Ollama / LM Studio: use standard max_tokens, no stream_options
+            if (maxTokens) body.max_tokens = maxTokens;
+        } else {
+            // OpenAI: use stream_options for usage tracking + max_completion_tokens
+            body.stream_options = { include_usage: true };
+            if (maxTokens) body.max_completion_tokens = maxTokens;
+        }
 
         if (options?.temperature !== undefined) body.temperature = options.temperature;
         if (options?.topP !== undefined) body.top_p = options.topP;
@@ -111,6 +120,8 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+        let doneEmitted = false;
+        let toolCallsEmitted = false;
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -135,6 +146,7 @@ export class OpenAIProvider implements LLMProvider {
 
                         // Usage-only chunk (sent after finish when stream_options.include_usage is true)
                         if (!delta && data.usage) {
+                            doneEmitted = true;
                             yield {
                                 type: 'done',
                                 usage: {
@@ -175,6 +187,7 @@ export class OpenAIProvider implements LLMProvider {
                         // Check for finish
                         if (data.choices?.[0]?.finish_reason) {
                             // Emit accumulated tool calls
+                            toolCallsEmitted = true;
                             for (const [, tc] of toolCalls) {
                                 yield {
                                     type: 'tool_call',
@@ -191,6 +204,17 @@ export class OpenAIProvider implements LLMProvider {
             }
         } finally {
             reader.releaseLock();
+        }
+
+        // Fallback for local models that don't send usage chunks:
+        // ensure tool calls and done are always emitted
+        if (!doneEmitted) {
+            if (!toolCallsEmitted) {
+                for (const [, tc] of toolCalls) {
+                    yield { type: 'tool_call', id: tc.id, name: tc.name, arguments: tc.arguments };
+                }
+            }
+            yield { type: 'done' };
         }
     }
 

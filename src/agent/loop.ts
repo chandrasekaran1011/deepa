@@ -87,12 +87,14 @@ export async function runAgentLoop(
     } = options;
 
     // Build system prompt
+    const isLocal = config.provider.type === 'local';
     const systemPrompt = buildSystemPrompt({
         mode: config.mode,
         agentsMdContent,
         memoryContent,
-        skillDescriptions,
+        skillDescriptions: isLocal ? undefined : skillDescriptions,
         cwd,
+        isLocal,
     });
 
     const messages: Message[] = [

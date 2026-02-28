@@ -33,6 +33,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
                 baseUrl: config.baseUrl || 'http://localhost:1234/v1',
                 model: config.model || 'local-model',
                 maxTokens: config.maxTokens, // Do not default for local; let Llama.cpp handle context natively
+                isLocal: true,
             });
     }
 }
