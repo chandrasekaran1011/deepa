@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ChevronDown, ChevronRight, ShieldCheck, ShieldX, MessageSquare, User, Bot } from 'lucide-react';
+import { ChevronDown, ChevronRight, ShieldCheck, ShieldX, MessageSquare, User, Bot, ListChecks, Check, X } from 'lucide-react';
 import type { ChatMessage, ToolCall } from '../hooks/useAgent';
 
 interface ChatThreadProps {
     messages: ChatMessage[];
     isProcessing: boolean;
-    pendingConfirmation?: { description: string } | null;
+    pendingConfirmation?: {
+        description: string;
+        type: 'action' | 'plan';
+        planItems?: { content: string; status: string }[];
+    } | null;
     onConfirmResponse?: (response: 'allow' | 'deny' | string) => void;
 }
 
@@ -81,12 +85,19 @@ export const ChatThread: React.FC<ChatThreadProps> = ({ messages, isProcessing, 
                 ))
             )}
 
-            {/* Confirmation Card */}
+            {/* Confirmation / Plan Approval Card */}
             {pendingConfirmation && onConfirmResponse && (
-                <ConfirmCard
-                    description={pendingConfirmation.description}
-                    onResponse={onConfirmResponse}
-                />
+                pendingConfirmation.type === 'plan' && pendingConfirmation.planItems ? (
+                    <PlanApprovalCard
+                        planItems={pendingConfirmation.planItems}
+                        onResponse={onConfirmResponse}
+                    />
+                ) : (
+                    <ConfirmCard
+                        description={pendingConfirmation.description}
+                        onResponse={onConfirmResponse}
+                    />
+                )
             )}
 
             {isProcessing && !pendingConfirmation && messages[messages.length - 1]?.role !== 'assistant' && (
@@ -105,17 +116,33 @@ export const ChatThread: React.FC<ChatThreadProps> = ({ messages, isProcessing, 
 // ─── Message Entry ───
 
 const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
+    // System message (e.g. "User interrupted and stopped execution.")
+    if (message.role === 'system') {
+        return (
+            <div className="flex items-center gap-2 py-2 px-3 mx-2 my-2">
+                <div className="flex-1 border-b border-[var(--yellow)]/30" />
+                <span className="text-xs text-[var(--yellow)] font-medium px-2">{message.content}</span>
+                <div className="flex-1 border-b border-[var(--yellow)]/30" />
+            </div>
+        );
+    }
+
     const isUser = message.role === 'user';
 
     if (isUser) {
         return (
-            <div className="mt-5 mb-3">
+            <div className={`mt-5 mb-3 ${message.isQueued ? 'opacity-60' : ''}`}>
                 {/* User header */}
                 <div className="flex items-center gap-2 px-2 mb-1.5">
                     <div className="w-6 h-6 rounded-full bg-[var(--text-muted)]/20 flex items-center justify-center shrink-0">
                         <User size={13} className="text-[var(--text-secondary)]" />
                     </div>
                     <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">You</span>
+                    {message.isQueued && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--yellow)]/15 text-[var(--yellow)] font-medium">
+                            Queued
+                        </span>
+                    )}
                 </div>
                 {/* User message body */}
                 <div className="py-2 px-3 ml-8 text-[var(--text)] text-sm whitespace-pre-wrap leading-relaxed">
@@ -333,6 +360,99 @@ const ConfirmCard: React.FC<{
                             onChange={(e) => setFeedback(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleFeedbackSubmit()}
                             placeholder="Provide feedback..."
+                            className="flex-1 px-3 py-1.5 rounded-md bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] text-xs focus:outline-none focus:border-[var(--accent)]/50"
+                            autoFocus
+                        />
+                        <button
+                            onClick={handleFeedbackSubmit}
+                            disabled={!feedback.trim()}
+                            className="px-3 py-1.5 rounded-md bg-[var(--accent)]/15 text-[var(--accent)] hover:bg-[var(--accent)]/25 transition-colors text-xs font-medium disabled:opacity-40"
+                        >
+                            Send
+                        </button>
+                        <button
+                            onClick={() => setShowFeedback(false)}
+                            className="px-3 py-1.5 rounded-md bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-xs"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ─── Plan Approval Card ───
+
+const PlanApprovalCard: React.FC<{
+    planItems: { content: string; status: string }[];
+    onResponse: (response: 'allow' | 'deny' | string) => void;
+}> = ({ planItems, onResponse }) => {
+    const [showFeedback, setShowFeedback] = useState(false);
+    const [feedback, setFeedback] = useState('');
+
+    const handleFeedbackSubmit = () => {
+        if (feedback.trim()) {
+            onResponse(feedback.trim());
+        }
+    };
+
+    return (
+        <div className="my-3 mx-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--accent)]/20">
+                <ListChecks size={15} className="text-[var(--accent)]" />
+                <span className="font-bold text-sm text-[var(--text)]">Plan</span>
+                <span className="text-xs text-[var(--text-muted)] ml-auto">{planItems.length} steps</span>
+            </div>
+
+            {/* Plan steps */}
+            <div className="px-4 py-3 space-y-1.5">
+                {planItems.map((item, i) => (
+                    <div key={i} className="flex items-start gap-2.5">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-[var(--accent)]/15 flex items-center justify-center text-[10px] font-bold text-[var(--accent)] mt-0.5">
+                            {i + 1}
+                        </span>
+                        <span className="text-sm text-[var(--text)] leading-snug">{item.content}</span>
+                    </div>
+                ))}
+            </div>
+
+            {/* Actions */}
+            <div className="px-4 py-2.5 border-t border-[var(--accent)]/20 bg-[var(--bg-card)]/50">
+                {!showFeedback ? (
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => onResponse('allow')}
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[var(--green)]/15 text-[var(--green)] hover:bg-[var(--green)]/25 transition-colors text-xs font-medium"
+                        >
+                            <Check size={12} />
+                            Approve
+                        </button>
+                        <button
+                            onClick={() => onResponse('deny')}
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[var(--red)]/15 text-[var(--red)] hover:bg-[var(--red)]/25 transition-colors text-xs font-medium"
+                        >
+                            <X size={12} />
+                            Reject
+                        </button>
+                        <button
+                            onClick={() => setShowFeedback(true)}
+                            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-[var(--bg-input)] text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors text-xs font-medium"
+                        >
+                            <MessageSquare size={12} />
+                            Edit
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="text"
+                            value={feedback}
+                            onChange={(e) => setFeedback(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleFeedbackSubmit()}
+                            placeholder="Suggest changes to the plan..."
                             className="flex-1 px-3 py-1.5 rounded-md bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] text-xs focus:outline-none focus:border-[var(--accent)]/50"
                             autoFocus
                         />

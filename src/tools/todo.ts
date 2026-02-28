@@ -131,7 +131,7 @@ export const todoTool: Tool = {
     parameters,
     riskLevel: 'low',
 
-    async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
+    async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { todos } = params as z.infer<typeof parameters>;
 
         // Validate: at most one in_progress
@@ -146,6 +146,18 @@ export const todoTool: Tool = {
 
         // Capture previous state for diff feedback
         const prev = currentTodos;
+
+        // First todo call = initial plan — request user approval before executing
+        if (prev.length === 0 && todos.length > 0) {
+            const response = await context.confirmAction(
+                `PLAN_APPROVAL\n${JSON.stringify(todos)}`,
+            );
+            if (response === false) {
+                return { content: 'Plan rejected by user. Ask what changes they want.', isError: true };
+            } else if (typeof response === 'string') {
+                return { content: `Plan rejected. User feedback: "${response}"\nRevise the plan based on this feedback.`, isError: true };
+            }
+        }
 
         // Store
         currentTodos = todos;

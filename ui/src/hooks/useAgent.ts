@@ -7,9 +7,10 @@ export interface AttachmentInfo {
 
 export interface ChatMessage {
     id: string;
-    role: 'user' | 'assistant';
+    role: 'user' | 'assistant' | 'system';
     content: string;
     isStreaming?: boolean;
+    isQueued?: boolean;
     toolCalls?: ToolCall[];
     attachments?: AttachmentInfo[];
 }
@@ -28,7 +29,11 @@ export function useAgent() {
     const [error, setError] = useState<string | null>(null);
     const [queueSize, setQueueSize] = useState(0);
     const [sessionId, setSessionId] = useState<string | null>(null);
-    const [pendingConfirmation, setPendingConfirmation] = useState<{ description: string } | null>(null);
+    const [pendingConfirmation, setPendingConfirmation] = useState<{
+        description: string;
+        type: 'action' | 'plan';
+        planItems?: { content: string; status: string }[];
+    } | null>(null);
 
     const eventSourceRef = useRef<EventSource | null>(null);
     const currentMessageIdRef = useRef<string | null>(null);
@@ -157,7 +162,17 @@ export function useAgent() {
                 break;
 
             case 'confirm_request':
-                setPendingConfirmation({ description: data.description });
+                if (data.description.startsWith('PLAN_APPROVAL\n')) {
+                    const jsonStr = data.description.slice('PLAN_APPROVAL\n'.length);
+                    try {
+                        const planItems = JSON.parse(jsonStr);
+                        setPendingConfirmation({ description: '', type: 'plan', planItems });
+                    } catch {
+                        setPendingConfirmation({ description: data.description, type: 'action' });
+                    }
+                } else {
+                    setPendingConfirmation({ description: data.description, type: 'action' });
+                }
                 break;
 
             case 'done':
@@ -174,6 +189,10 @@ export function useAgent() {
                 if (messageQueueRef.current.length > 0) {
                     const next = messageQueueRef.current.shift()!;
                     setQueueSize(messageQueueRef.current.length);
+                    // Clear isQueued flag on the message about to be sent
+                    setMessages((prev) => prev.map(msg =>
+                        msg.content === next.text && msg.isQueued ? { ...msg, isQueued: false } : msg
+                    ));
                     doSendMessage(next.text, next.files);
                 }
                 break;
@@ -241,10 +260,10 @@ export function useAgent() {
             messageQueueRef.current.push({ text, files });
             setQueueSize(messageQueueRef.current.length);
 
-            // Still show the queued user message in the thread
+            // Show the queued user message in the thread with queued indicator
             const userMsgId = Date.now().toString();
             const attachments: AttachmentInfo[] = files.map(f => ({ name: f.name }));
-            setMessages((prev) => [...prev, { id: userMsgId, role: 'user', content: text, attachments }]);
+            setMessages((prev) => [...prev, { id: userMsgId, role: 'user', content: text, attachments, isQueued: true }]);
             return;
         }
 
@@ -307,6 +326,14 @@ export function useAgent() {
             );
         }
         currentMessageIdRef.current = null;
+
+        // Add system message indicating interruption
+        const stopMsgId = 'stop-' + Date.now();
+        setMessages((prev) => [...prev, { id: stopMsgId, role: 'system', content: 'User interrupted and stopped execution.' }]);
+
+        // Clear queued messages
+        messageQueueRef.current = [];
+        setQueueSize(0);
     };
 
     return {
