@@ -516,7 +516,6 @@ export function printHelp(): void {
     section('Other');
     cmd('image <path> [msg]', 'send an image to the assistant');
     cmd('paste [msg]', 'send clipboard image (macOS)');
-    cmd('config-ui', 'open web config UI (localhost:3000)');
     console.log();
 }
 

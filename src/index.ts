@@ -18,7 +18,7 @@ import {
     PROVIDER_PRESETS, type StoredModel,
 } from './store/models.js';
 import { addMcpServer, removeMcpServer, listMcpServers } from './store/mcp.js';
-import { startConfigServer } from './server/index.js';
+
 import { startUIServer } from './server/ui-server.js';
 import open from 'open';
 import {
@@ -198,17 +198,6 @@ mcpCmd
             }
             console.log('');
         }
-    });
-
-// ─── Config UI subcommand ───
-
-program
-    .command('config-ui')
-    .description('Launch the Local Web Configuration UI')
-    .option('-p, --port <number>', 'Port to run the UI server on', '3000')
-    .action(async (options: { port: string }) => {
-        const port = parseInt(options.port, 10);
-        await startConfigServer(port);
     });
 
 // ─── Chat UI subcommand ───
@@ -711,12 +700,6 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                         clipResult.image,
                     ];
                     await processMessage(pasteContent);
-                    break;
-                }
-
-                case 'config-ui': {
-                    const port = parseInt(args[0] || '3000', 10);
-                    await startConfigServer(port);
                     break;
                 }
 
