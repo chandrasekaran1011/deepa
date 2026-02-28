@@ -636,9 +636,6 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                             if (skill.description) {
                                 console.log(chalk.dim(`    ${skill.description}`));
                             }
-                            if (skill.trigger) {
-                                console.log(chalk.dim(`    trigger: /${skill.trigger}/i`));
-                            }
                             console.log('');
                         }
                     } else {

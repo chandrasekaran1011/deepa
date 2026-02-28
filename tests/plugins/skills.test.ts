@@ -3,18 +3,17 @@
  *
  * Creates 6 dummy skills in a temp directory and verifies the full lifecycle:
  *   1. SKILL.md discovery from multiple directories
- *   2. Frontmatter parsing (name, description, trigger, allowed-tools)
- *   3. SkillRegistry API (add, get, list, match, getDescriptions)
- *   4. use_skill tool invocation (progressive disclosure)
- *   5. Trigger-based context matching
- *   6. Edge cases (missing files, no frontmatter, duplicate names, large files)
+ *   2. Frontmatter parsing and validation
+ *   3. SkillRegistry API (add, get, list, getDescriptions)
+ *   4. use_skill tool invocation (progressive disclosure + file reading)
+ *   5. Edge cases (missing files, no frontmatter, duplicate names, large files)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'fs';
+import { mkdirSync, writeFileSync, rmSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { loadSkills, parseFrontmatter, SkillRegistry } from '../../src/plugins/skills.js';
+import { loadSkills, parseFrontmatter, SkillRegistry, validateFrontmatter, readSkillBody, readSkillFile } from '../../src/plugins/skills.js';
 import { createUseSkillTool } from '../../src/tools/use-skill.js';
 import type { ToolContext } from '../../src/types.js';
 
@@ -36,7 +35,6 @@ const SKILLS = {
         frontmatter: `---
 name: python-expert
 description: Use for writing or debugging Python code, data science, and ML tasks.
-trigger: python|pandas|numpy|pytorch|sklearn
 allowed-tools: shell, file_write, file_edit
 ---`,
         body: `# python-expert
@@ -52,7 +50,6 @@ allowed-tools: shell, file_write, file_edit
         frontmatter: `---
 name: react-engineer
 description: Use when writing or debugging React components, hooks, or frontend architecture.
-trigger: react|jsx|tsx|component|hook|useState|useEffect
 ---`,
         body: `# react-engineer
 
@@ -66,7 +63,6 @@ trigger: react|jsx|tsx|component|hook|useState|useEffect
         frontmatter: `---
 name: api-designer
 description: Use for designing REST APIs, OpenAPI specs, or backend route architecture.
-trigger: api|endpoint|route|REST|openapi|swagger
 allowed-tools: file_write, web_search
 ---`,
         body: `# api-designer
@@ -81,7 +77,6 @@ allowed-tools: file_write, web_search
         frontmatter: `---
 name: git-workflow
 description: Use for git operations, branch management, merge conflicts, and PR workflows.
-trigger: git|branch|merge|rebase|commit|pull request|PR
 ---`,
         body: `# git-workflow
 
@@ -95,7 +90,6 @@ trigger: git|branch|merge|rebase|commit|pull request|PR
         frontmatter: `---
 name: database-tuning
 description: Use for SQL optimization, indexing strategies, and database schema design.
-trigger: sql|query|index|database|postgres|mysql|schema
 ---`,
         body: `# database-tuning
 
@@ -156,16 +150,14 @@ Body content here.`);
             expect(result.body).toContain('Body content here.');
         });
 
-        it('parses trigger and allowed-tools fields', () => {
+        it('parses allowed-tools field', () => {
             const result = parseFrontmatter(`---
 name: test
 description: Test skill
-trigger: python|ml|data
 allowed-tools: shell, file_write
 ---
 
 Instructions here.`);
-            expect(result.frontmatter.trigger).toBe('python|ml|data');
             expect(result.frontmatter['allowed-tools']).toBe('shell, file_write');
         });
 
@@ -183,6 +175,65 @@ description: Use this skill for: writing code and debugging
 
 Body.`);
             expect(result.frontmatter.description).toBe('Use this skill for: writing code and debugging');
+        });
+    });
+
+    // ═══════════════════════════════════════════
+    // 1b. Frontmatter Validation
+    // ═══════════════════════════════════════════
+    describe('validateFrontmatter', () => {
+        it('accepts valid frontmatter', () => {
+            const errors = validateFrontmatter({ name: 'my-skill', description: 'A valid skill' }, 'fallback');
+            expect(errors).toHaveLength(0);
+        });
+
+        it('rejects name exceeding 64 characters', () => {
+            const errors = validateFrontmatter({ name: 'a'.repeat(65), description: 'ok' }, 'fallback');
+            expect(errors.some(e => e.field === 'name' && e.message.includes('64'))).toBe(true);
+        });
+
+        it('rejects name with uppercase letters', () => {
+            const errors = validateFrontmatter({ name: 'MySkill', description: 'ok' }, 'fallback');
+            expect(errors.some(e => e.field === 'name' && e.message.includes('lowercase'))).toBe(true);
+        });
+
+        it('rejects name with spaces or special characters', () => {
+            const errors = validateFrontmatter({ name: 'my skill!', description: 'ok' }, 'fallback');
+            expect(errors.some(e => e.field === 'name')).toBe(true);
+        });
+
+        it('rejects name containing reserved words', () => {
+            const errors = validateFrontmatter({ name: 'anthropic-helper', description: 'ok' }, 'fallback');
+            expect(errors.some(e => e.message.includes('reserved'))).toBe(true);
+
+            const errors2 = validateFrontmatter({ name: 'claude-tools', description: 'ok' }, 'fallback');
+            expect(errors2.some(e => e.message.includes('reserved'))).toBe(true);
+        });
+
+        it('rejects empty description', () => {
+            const errors = validateFrontmatter({ name: 'ok-skill', description: '' }, 'fallback');
+            expect(errors.some(e => e.field === 'description' && e.message.includes('required'))).toBe(true);
+        });
+
+        it('rejects missing description', () => {
+            const errors = validateFrontmatter({ name: 'ok-skill' }, 'fallback');
+            expect(errors.some(e => e.field === 'description')).toBe(true);
+        });
+
+        it('rejects description exceeding 1024 characters', () => {
+            const errors = validateFrontmatter({ name: 'ok-skill', description: 'x'.repeat(1025) }, 'fallback');
+            expect(errors.some(e => e.field === 'description' && e.message.includes('1024'))).toBe(true);
+        });
+
+        it('uses fallback name when name not in frontmatter', () => {
+            const errors = validateFrontmatter({ description: 'ok' }, 'my-fallback');
+            // Should validate the fallback name
+            expect(errors).toHaveLength(0);
+        });
+
+        it('rejects fallback name with uppercase', () => {
+            const errors = validateFrontmatter({ description: 'ok' }, 'MyFallback');
+            expect(errors.some(e => e.field === 'name')).toBe(true);
         });
     });
 
@@ -218,7 +269,7 @@ Body.`);
             expect(registry.get('git-workflow')).toBeDefined();
         });
 
-        it('loads all 6 dummy skills correctly', () => {
+        it('loads all 6 dummy skills with correct metadata', () => {
             const skillsDir = join(TEST_DIR, 'skills');
             mkdirSync(skillsDir, { recursive: true });
 
@@ -229,20 +280,35 @@ Body.`);
             const registry = loadSkills(TEST_DIR, [skillsDir]);
             expect(registry.size).toBe(6);
 
-            // Verify each skill has correct metadata
             const python = registry.get('python-expert')!;
             expect(python.description).toContain('Python');
-            expect(python.trigger).toBe('python|pandas|numpy|pytorch|sklearn');
             expect(python.allowedTools).toEqual(['shell', 'file_write', 'file_edit']);
-            expect(python.instructions).toContain('type hints');
+            expect(python.dir).toContain('python-expert');
+
+            // Body is NOT stored — only loaded on demand
+            expect((python as any).instructions).toBeUndefined();
+
+            // But readSkillBody can fetch it
+            const body = readSkillBody(python);
+            expect(body).toContain('type hints');
 
             const react = registry.get('react-engineer')!;
-            expect(react.trigger).toContain('react');
             expect(react.allowedTools).toBeUndefined();
 
             const testing = registry.get('testing-guru')!;
-            expect(testing.trigger).toBeUndefined();
-            expect(testing.instructions).toContain('TDD');
+            const testingBody = readSkillBody(testing);
+            expect(testingBody).toContain('TDD');
+        });
+
+        it('stores skill directory path', () => {
+            const skillsDir = join(TEST_DIR, 'skills');
+            mkdirSync(skillsDir, { recursive: true });
+            createSkillDir(skillsDir, 'python-expert', SKILLS['python-expert'].frontmatter, SKILLS['python-expert'].body);
+
+            const registry = loadSkills(TEST_DIR, [skillsDir]);
+            const skill = registry.get('python-expert')!;
+            expect(skill.dir).toBe(join(skillsDir, 'python-expert'));
+            expect(skill.path).toBe(join(skillsDir, 'python-expert', 'SKILL.md'));
         });
 
         it('uses directory name as fallback when name missing from frontmatter', () => {
@@ -320,7 +386,9 @@ description: Version 2 from second dir
             expect(registry.size).toBe(1);
             const skill = registry.get('python-expert')!;
             expect(skill.description).toContain('Version 2');
-            expect(skill.instructions).toContain('New instructions');
+            // Body is read from filesystem — should get the latest version
+            const body = readSkillBody(skill);
+            expect(body).toContain('New instructions');
         });
     });
 
@@ -330,8 +398,8 @@ description: Version 2 from second dir
     describe('SkillRegistry', () => {
         it('getDescriptions returns name: description format', () => {
             const registry = new SkillRegistry();
-            registry.add({ name: 'skill-a', description: 'Does A', instructions: '', path: '' });
-            registry.add({ name: 'skill-b', description: 'Does B', instructions: '', path: '' });
+            registry.add({ name: 'skill-a', description: 'Does A', path: '', dir: '' });
+            registry.add({ name: 'skill-b', description: 'Does B', path: '', dir: '' });
 
             const descs = registry.getDescriptions();
             expect(descs).toHaveLength(2);
@@ -339,48 +407,6 @@ description: Version 2 from second dir
             expect(descs[1]).toBe('skill-b: Does B');
         });
 
-        it('match returns skills with matching trigger patterns', () => {
-            const registry = new SkillRegistry();
-            registry.add({ name: 'python', description: 'Python', instructions: '', path: '', trigger: 'python|pandas' });
-            registry.add({ name: 'react', description: 'React', instructions: '', path: '', trigger: 'react|jsx' });
-            registry.add({ name: 'generic', description: 'No trigger', instructions: '', path: '' });
-
-            const matches = registry.match('Help me write a python script');
-            expect(matches).toHaveLength(1);
-            expect(matches[0].name).toBe('python');
-        });
-
-        it('match is case-insensitive', () => {
-            const registry = new SkillRegistry();
-            registry.add({ name: 'react', description: 'React', instructions: '', path: '', trigger: 'react|jsx' });
-
-            expect(registry.match('Write a REACT component')).toHaveLength(1);
-            expect(registry.match('Create JSX template')).toHaveLength(1);
-        });
-
-        it('match returns multiple matching skills', () => {
-            const registry = new SkillRegistry();
-            registry.add({ name: 'api', description: 'API', instructions: '', path: '', trigger: 'api|endpoint' });
-            registry.add({ name: 'testing', description: 'Testing', instructions: '', path: '', trigger: 'test|api' });
-
-            const matches = registry.match('Write API tests');
-            expect(matches).toHaveLength(2);
-        });
-
-        it('match returns empty array when nothing matches', () => {
-            const registry = new SkillRegistry();
-            registry.add({ name: 'python', description: 'Python', instructions: '', path: '', trigger: 'python' });
-
-            expect(registry.match('Write a Rust program')).toHaveLength(0);
-        });
-
-        it('match handles invalid regex gracefully (falls back to substring)', () => {
-            const registry = new SkillRegistry();
-            registry.add({ name: 'broken', description: 'Broken', instructions: '', path: '', trigger: '[invalid regex(' });
-
-            // Should not throw, falls back to substring matching
-            expect(() => registry.match('test')).not.toThrow();
-        });
     });
 
     // ═══════════════════════════════════════════
@@ -408,6 +434,23 @@ description: Version 2 from second dir
             expect(result.content).toContain('Google-style docstrings');
         });
 
+        it('includes skill directory path', async () => {
+            const registry = makeRegistryWithSkills();
+            const tool = createUseSkillTool(registry);
+
+            const result = await tool.execute({ name: 'python-expert' }, makeContext());
+            expect(result.content).toContain('Skill directory:');
+        });
+
+        it('includes hint about referenced files', async () => {
+            const registry = makeRegistryWithSkills();
+            const tool = createUseSkillTool(registry);
+
+            const result = await tool.execute({ name: 'python-expert' }, makeContext());
+            expect(result.content).toContain('use_skill');
+            expect(result.content).toContain('file');
+        });
+
         it('includes allowed-tools when present', async () => {
             const registry = makeRegistryWithSkills();
             const tool = createUseSkillTool(registry);
@@ -433,7 +476,7 @@ description: Version 2 from second dir
             const result = await tool.execute({ name: 'nonexistent-skill' }, makeContext());
             expect(result.isError).toBe(true);
             expect(result.content).toContain('not found');
-            expect(result.content).toContain('python-expert'); // Lists available skills
+            expect(result.content).toContain('python-expert');
         });
 
         it('returns all 6 skills instructions correctly', async () => {
@@ -448,6 +491,46 @@ description: Version 2 from second dir
             }
         });
 
+        it('reads referenced files within skill directory', async () => {
+            const skillsDir = join(TEST_DIR, 'skills');
+            mkdirSync(skillsDir, { recursive: true });
+            createSkillDir(skillsDir, 'python-expert', SKILLS['python-expert'].frontmatter, SKILLS['python-expert'].body);
+
+            // Add a referenced file
+            writeFileSync(join(skillsDir, 'python-expert', 'REFERENCE.md'), '# API Reference\n\nDetailed API docs here.');
+
+            const registry = loadSkills(TEST_DIR, [skillsDir]);
+            const tool = createUseSkillTool(registry);
+
+            const result = await tool.execute({ name: 'python-expert', file: 'REFERENCE.md' }, makeContext());
+            expect(result.isError).toBeUndefined();
+            expect(result.content).toContain('API Reference');
+            expect(result.content).toContain('Detailed API docs here');
+        });
+
+        it('returns error for non-existent referenced file', async () => {
+            const registry = makeRegistryWithSkills();
+            const tool = createUseSkillTool(registry);
+
+            const result = await tool.execute({ name: 'python-expert', file: 'NONEXISTENT.md' }, makeContext());
+            expect(result.content).toContain('not found');
+            expect(result.content).toContain('Available files');
+        });
+
+        it('lists directory contents when file param is a directory', async () => {
+            const skillsDir = join(TEST_DIR, 'skills');
+            mkdirSync(skillsDir, { recursive: true });
+            createSkillDir(skillsDir, 'python-expert', SKILLS['python-expert'].frontmatter, SKILLS['python-expert'].body);
+            mkdirSync(join(skillsDir, 'python-expert', 'scripts'), { recursive: true });
+            writeFileSync(join(skillsDir, 'python-expert', 'scripts', 'validate.py'), 'print("ok")');
+
+            const registry = loadSkills(TEST_DIR, [skillsDir]);
+            const tool = createUseSkillTool(registry);
+
+            const result = await tool.execute({ name: 'python-expert', file: 'scripts' }, makeContext());
+            expect(result.content).toContain('validate.py');
+        });
+
         it('is registered with safe safety level', () => {
             const registry = new SkillRegistry();
             const tool = createUseSkillTool(registry);
@@ -456,7 +539,55 @@ description: Version 2 from second dir
     });
 
     // ═══════════════════════════════════════════
-    // 5. Integration: System Prompt Descriptions
+    // 5. readSkillBody and readSkillFile
+    // ═══════════════════════════════════════════
+    describe('readSkillBody / readSkillFile', () => {
+        it('readSkillBody reads body from filesystem on demand', () => {
+            const skillsDir = join(TEST_DIR, 'skills');
+            mkdirSync(skillsDir, { recursive: true });
+            createSkillDir(skillsDir, 'python-expert', SKILLS['python-expert'].frontmatter, SKILLS['python-expert'].body);
+
+            const registry = loadSkills(TEST_DIR, [skillsDir]);
+            const skill = registry.get('python-expert')!;
+            const body = readSkillBody(skill);
+            expect(body).toContain('type hints');
+            expect(body).toContain('pathlib');
+            expect(body).not.toContain('---');  // Frontmatter should be stripped
+        });
+
+        it('readSkillBody returns error if SKILL.md deleted', () => {
+            const skillsDir = join(TEST_DIR, 'skills');
+            mkdirSync(skillsDir, { recursive: true });
+            createSkillDir(skillsDir, 'temp-skill', `---
+name: temp-skill
+description: Temporary
+---`, 'Body.');
+
+            const registry = loadSkills(TEST_DIR, [skillsDir]);
+            const skill = registry.get('temp-skill')!;
+
+            // Delete the file
+            rmSync(skill.path);
+
+            const body = readSkillBody(skill);
+            expect(body).toContain('Error');
+        });
+
+        it('readSkillFile prevents path traversal', () => {
+            const skillsDir = join(TEST_DIR, 'skills');
+            mkdirSync(skillsDir, { recursive: true });
+            createSkillDir(skillsDir, 'python-expert', SKILLS['python-expert'].frontmatter, SKILLS['python-expert'].body);
+
+            const registry = loadSkills(TEST_DIR, [skillsDir]);
+            const skill = registry.get('python-expert')!;
+
+            const result = readSkillFile(skill, '../../etc/passwd');
+            expect(result).toContain('Error');
+        });
+    });
+
+    // ═══════════════════════════════════════════
+    // 6. System Prompt Integration
     // ═══════════════════════════════════════════
     describe('System prompt integration', () => {
         it('getDescriptions does NOT include full instructions (progressive disclosure)', () => {
@@ -471,13 +602,11 @@ description: Version 2 from second dir
 
             expect(descriptions).toHaveLength(6);
 
-            // Descriptions should NOT contain full instruction content
             const joined = descriptions.join('\n');
             expect(joined).not.toContain('## Instructions');
             expect(joined).not.toContain('type hints');
             expect(joined).not.toContain('functional components');
 
-            // Should contain skill names
             expect(joined).toContain('python-expert');
             expect(joined).toContain('react-engineer');
             expect(joined).toContain('testing-guru');
@@ -485,11 +614,10 @@ description: Version 2 from second dir
 
         it('descriptions format is "name: description"', () => {
             const registry = new SkillRegistry();
-            registry.add({ name: 'test-skill', description: 'Does testing things', instructions: 'Full details...', path: '/tmp/test' });
+            registry.add({ name: 'test-skill', description: 'Does testing things', path: '/tmp/test', dir: '/tmp' });
 
             const descs = registry.getDescriptions();
             expect(descs[0]).toBe('test-skill: Does testing things');
-            expect(descs[0]).not.toContain('Full details');
         });
     });
 });

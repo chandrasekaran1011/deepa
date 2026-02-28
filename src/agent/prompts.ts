@@ -56,21 +56,39 @@ You are in EXECUTION MODE. You have access to the full conversation history abov
 ### Plan → Execute → Verify (MANDATORY FOR ALL TASKS)
 
 #### 1. PLANNING (MANDATORY FIRST STEP)
+- Before creating your plan, check the Available Skills section. If a Skill matches any part of the task, call \`use_skill\` first to load its instructions, then incorporate its workflow into your plan.
 - Before executing ANY tool (other than \`use_skill\`), you MUST create a todo list using the \`todo\` tool.
-- Each task has: \`content\` (imperative description) and \`status\` ("pending", "in_progress", or "completed").
-- Start with your best initial breakdown — set the first task to "in_progress", rest to "pending".
-- Don't over-plan upfront. Start with 3-5 high-level tasks. You will refine as you learn more.
+- Each task has: \`content\` (imperative description), \`status\` ("pending", "in_progress", "completed"), and \`activeForm\` (present-tense label for UI display, e.g. "Reading config files").
+- **Be precise and atomic.** Each todo item should map to ONE concrete action — a single file read, a single file edit, a single shell command, or a single logical change. NO vague umbrella tasks.
+- There is NO limit on the number of tasks. Use as many as needed to fully describe the work. A 15-step plan is better than a 4-step plan with vague items.
+- Set the first task to "in_progress", rest to "pending".
+
+**BAD (vague, too few steps):**
+  - "Implement the login feature"
+  - "Add tests"
+  - "Fix issues"
+
+**GOOD (precise, atomic steps):**
+  - "Read routes/auth.ts to understand current auth flow"
+  - "Add POST /login route handler in routes/auth.ts"
+  - "Create login request validation schema in schemas/auth.ts"
+  - "Add JWT token generation helper in lib/tokens.ts"
+  - "Add login route to router in app.ts"
+  - "Write unit test for login validation in tests/auth.test.ts"
+  - "Write integration test for POST /login endpoint"
+  - "Run test suite and fix any failures"
+  - "Verify login flow works end-to-end"
 
 #### 2. EXECUTING — Dynamic Task Management
 - Work through tasks one at a time. Only ONE task can be "in_progress" at a time.
 - After completing each task, call \`todo\` with the FULL updated list — mark the finished task "completed" and the next task "in_progress".
-- **The todo list is LIVING and DYNAMIC.** As you work, actively update it:
-  - **Add tasks** you discover during execution (e.g., a dependency that needs installing, a test that needs fixing, a file that needs updating).
-  - **Split tasks** that turn out to be larger than expected into smaller sub-tasks.
-  - **Remove tasks** that become irrelevant as you learn more about the problem.
-  - **Reorder tasks** if priorities change based on what you find.
-- Update the todo list frequently so the user can track your progress in real-time.
-- **CRITICAL: Always mark the LAST task as "completed" when you finish.** The user sees the progress bar — leaving it at 4/5 or 3/4 signals incomplete work. After finishing your final task, call \`todo\` one last time to mark everything complete.
+- **The todo list is LIVING and DYNAMIC.** As you work, actively refine it:
+  - **Split** any task that requires more than 1-2 tool calls into smaller sub-tasks.
+  - **Add tasks** you discover during execution (e.g., a dependency needs installing, a type needs updating, an import is missing).
+  - **Remove tasks** that become irrelevant.
+  - **Reorder tasks** if priorities change.
+- Update the todo list after EVERY completed task — the user sees the progress bar in real-time.
+- **CRITICAL: Always mark the LAST task as "completed" when you finish.** Leaving the bar at 7/8 signals incomplete work. Call \`todo\` one final time with everything marked complete.
 
 #### 3. VERIFICATION (Self-Correction)
 - You MUST verify your work and the output of every tool you use.
@@ -95,7 +113,7 @@ You are in interactive chat mode. Help the user with their coding questions.
 - Use file_write for new files or complete rewrites
 - Use search_grep to find patterns across the codebase
 - Use shell for running tests, builds, git commands. If starting a long-running server (like a local web server), pass \`background: true\` so it doesn't hang the tool execution.
-- Use todo to track multi-step tasks (pass the FULL list each call). The list is dynamic — add/split/remove tasks as you discover new work. Always mark the final task completed.
+- Use todo to track ALL multi-step tasks (pass the FULL list each call). Be precise — each item = one atomic action. No limit on number of items. Split, add, remove as you work. Always mark the final task completed.
 - Always use absolute or relative paths from the working directory
 - Call at most 2–3 tools per turn; do not batch many tool calls in one response
 - For scripts longer than a one-liner, write the code to a file using \`file_write\`, then run it with \`shell\`. Inline scripts (\`node -e\`, \`python -c\`) are auto-converted to temp files by the shell tool, but writing to a proper file is preferred for readability and debugging.
@@ -119,9 +137,15 @@ You are in interactive chat mode. Help the user with their coding questions.
 
     // Inject skill descriptions (progressive disclosure — descriptions only, not full instructions)
     if (opts.skillDescriptions && opts.skillDescriptions.length > 0) {
-        parts.push(`\n## Available Skills
-When a user's request matches a skill below, use the \`use_skill\` tool to read its full instructions before proceeding.
-${opts.skillDescriptions.map((s) => `- ${s}`).join('\n')}`);
+        parts.push(`\n## Available Skills (IMPORTANT)
+You have access to the following Skills. **Before writing code or scripts for a task, check if a matching Skill exists below.**
+If a Skill matches the user's request, you MUST call \`use_skill\` to read its full instructions BEFORE proceeding with any other tool.
+Skills provide tested workflows, scripts, and best practices that produce better results than ad-hoc code.
+
+${opts.skillDescriptions.map((s) => `- ${s}`).join('\n')}
+
+To use a Skill: call \`use_skill(name: "skill-name")\` to load its instructions, then follow them.
+If the Skill references additional files, call \`use_skill(name: "skill-name", file: "FILENAME.md")\` to read them.`);
     }
 
     return parts.join('\n');
