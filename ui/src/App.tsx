@@ -3,6 +3,8 @@ import { AlertCircle, Paperclip, Square, X, ArrowUp } from 'lucide-react';
 import { ChatThread } from './components/ChatThread';
 import { SettingsBar } from './components/SettingsBar';
 import { SessionPanel } from './components/SessionPanel';
+import { SettingsPanel } from './components/SettingsPanel';
+import { BottomControls } from './components/BottomControls';
 import { useAgent } from './hooks/useAgent';
 
 interface Attachment {
@@ -13,11 +15,13 @@ interface Attachment {
 }
 
 function App() {
-  const { messages, sendMessage, isProcessing, error, stopProcessing, queueSize, sessionId, newSession, loadSession, pendingConfirmation, respondToConfirmation } = useAgent();
+  const { messages, sendMessage, isProcessing, error, stopProcessing, sessionId, newSession, loadSession, pendingConfirmation, respondToConfirmation } = useAgent();
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsRefreshKey, setSettingsRefreshKey] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -121,7 +125,9 @@ function App() {
       onDrop={handleDrop}
     >
       {/* Settings Bar */}
-      <SettingsBar onToggleSessions={() => setShowSessions(!showSessions)} />
+      <SettingsBar
+        onToggleSessions={() => { setShowSessions(!showSessions); setShowSettings(false); }}
+      />
 
       {/* Session Panel */}
       <SessionPanel
@@ -130,6 +136,12 @@ function App() {
         currentSessionId={sessionId}
         onNewSession={newSession}
         onLoadSession={loadSession}
+      />
+
+      {/* Settings Panel */}
+      <SettingsPanel
+        isOpen={showSettings}
+        onClose={() => { setShowSettings(false); setSettingsRefreshKey(k => k + 1); }}
       />
 
       {/* Error Banner */}
@@ -207,11 +219,6 @@ function App() {
                 className="w-full max-h-32 min-h-[44px] py-3 px-4 pr-12 bg-[var(--bg-input)] border border-[var(--border)] rounded-xl resize-none focus:outline-none focus:border-[var(--accent)]/50 text-[var(--text)] placeholder:text-[var(--text-muted)] text-sm transition-colors"
                 rows={1}
               />
-              {queueSize > 0 && (
-                <span className="absolute right-14 top-1/2 -translate-y-1/2 text-xs text-[var(--accent)] bg-[var(--accent)]/10 px-2 py-0.5 rounded-full">
-                  {queueSize} queued
-                </span>
-              )}
             </div>
 
             {/* Send / Stop Buttons */}
@@ -237,9 +244,10 @@ function App() {
             </div>
           </form>
 
-          <div className="text-center mt-1.5 text-[10px] text-[var(--text-muted)]">
-            Enter to send · Shift+Enter new line · Ctrl+V paste image · Drag files to attach
-          </div>
+          <BottomControls
+            onToggleSettings={() => { setShowSettings(!showSettings); setShowSessions(false); }}
+            refreshKey={settingsRefreshKey}
+          />
         </div>
       </div>
     </div>
