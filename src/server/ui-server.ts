@@ -15,7 +15,8 @@ import { ToolRegistry } from '../tools/registry.js';
 import { loadSkills } from '../plugins/skills.js';
 import { createUseSkillTool } from '../tools/use-skill.js';
 import { connectMCPServers, MCPConnection } from '../mcp/client.js';
-import { listModels, getModel } from '../store/models.js';
+import { listModels, getModel, addModel, removeModel, setDefaultModel, PROVIDER_PRESETS } from '../store/models.js';
+import { addMcpServer, removeMcpServer, listMcpServers } from '../store/mcp.js';
 import chalk from 'chalk';
 import type { Message, MessageContent } from '../types.js';
 
@@ -243,6 +244,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
             provider: config.provider.type,
             autonomy: config.autonomy,
             messageCount: conversationHistory.length,
+            cwd,
         });
     });
 
@@ -255,10 +257,99 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                 name: m.name,
                 provider: m.provider,
                 model: m.model,
+                baseUrl: m.baseUrl,
+                maxTokens: m.maxTokens,
+                apiKeyMasked: (m as any).apiKeyMasked,
                 isDefault: m.isDefault,
             })),
             current: config.provider.model,
         });
+    });
+
+    app.post('/api/models', (req, res) => {
+        try {
+            const { name, provider: prov, model: mod, baseUrl, apiKey, maxTokens, isDefault } = req.body;
+            if (!name || !prov || !mod || !baseUrl) {
+                return res.status(400).json({ error: 'name, provider, model, and baseUrl are required' });
+            }
+            addModel({
+                name,
+                provider: prov,
+                model: mod,
+                baseUrl,
+                apiKey: apiKey || undefined,
+                maxTokens: maxTokens || 16384,
+                isDefault: !!isDefault,
+            });
+            res.json({ status: 'ok' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.delete('/api/models/:name', (req, res) => {
+        const removed = removeModel(req.params.name);
+        if (removed) {
+            res.json({ status: 'deleted' });
+        } else {
+            res.status(404).json({ error: 'Model not found' });
+        }
+    });
+
+    app.post('/api/models/:name/default', (req, res) => {
+        const set = setDefaultModel(req.params.name);
+        if (set) {
+            res.json({ status: 'ok' });
+        } else {
+            res.status(404).json({ error: 'Model not found' });
+        }
+    });
+
+    app.get('/api/provider-presets', (_req, res) => {
+        res.json(PROVIDER_PRESETS);
+    });
+
+    // ─── MCP endpoints ───
+
+    app.get('/api/mcp', (_req, res) => {
+        const servers = listMcpServers();
+        res.json({ servers });
+    });
+
+    app.post('/api/mcp/:name', (req, res) => {
+        try {
+            const name = req.params.name;
+            const { command, args, url, transport } = req.body;
+            if (command) {
+                addMcpServer(name, { command, args: args || [] });
+            } else if (url) {
+                addMcpServer(name, { url, transport: transport || 'http' });
+            } else {
+                return res.status(400).json({ error: 'Provide command (stdio) or url (remote)' });
+            }
+            res.json({ status: 'ok' });
+        } catch (err: any) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    app.delete('/api/mcp/:name', (req, res) => {
+        const removed = removeMcpServer(req.params.name);
+        if (removed) {
+            res.json({ status: 'deleted' });
+        } else {
+            res.status(404).json({ error: 'Server not found' });
+        }
+    });
+
+    // ─── Skills endpoint ───
+
+    app.get('/api/skills', (_req, res) => {
+        const skills = skillRegistry.list().map(s => ({
+            name: s.name,
+            description: s.description,
+        }));
+        res.json({ skills });
     });
 
     // ─── Settings endpoint ───
