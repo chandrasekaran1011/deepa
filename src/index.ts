@@ -18,6 +18,7 @@ import {
     PROVIDER_PRESETS, type StoredModel,
 } from './store/models.js';
 import { addMcpServer, removeMcpServer, listMcpServers } from './store/mcp.js';
+import { recordTokenUsage, getTokenSummary } from './store/tokens.js';
 
 import { startUIServer } from './server/ui-server.js';
 import open from 'open';
@@ -233,6 +234,47 @@ program
         await runInteractive(promptParts.join(' '), flags);
     });
 
+program
+    .command('tokens')
+    .description('Show token usage summary for a given month')
+    .option('--month <month>', 'Month (1-12)', String(new Date().getMonth() + 1))
+    .option('--year <year>', 'Year', String(new Date().getFullYear()))
+    .action((opts: { month: string; year: string }) => {
+        const month = parseInt(opts.month);
+        const year = parseInt(opts.year);
+        const monthName = new Date(year, month - 1).toLocaleString('en', { month: 'long' });
+        const summary = getTokenSummary(month, year);
+
+        console.log(chalk.bold(`\n  Token Usage — ${monthName} ${year}\n`));
+
+        if (summary.length === 0) {
+            console.log(chalk.dim('  No token usage recorded for this period.\n'));
+            return;
+        }
+
+        const modelWidth = Math.max(30, ...summary.map((s) => s.model.length + 2));
+        const header = `  ${'Model'.padEnd(modelWidth)}  ${'Prompt'.padStart(12)}  ${'Completion'.padStart(12)}  ${'Total'.padStart(12)}`;
+        console.log(chalk.dim(header));
+        console.log(chalk.dim(`  ${'─'.repeat(modelWidth)}  ${'─'.repeat(12)}  ${'─'.repeat(12)}  ${'─'.repeat(12)}`));
+
+        let grandPrompt = 0;
+        let grandCompletion = 0;
+        for (const s of summary) {
+            grandPrompt += s.promptTokens;
+            grandCompletion += s.completionTokens;
+            console.log(
+                `  ${chalk.white(s.model.padEnd(modelWidth))}  ${chalk.dim(s.promptTokens.toLocaleString().padStart(12))}  ${chalk.dim(s.completionTokens.toLocaleString().padStart(12))}  ${chalk.bold(s.totalTokens.toLocaleString().padStart(12))}`,
+            );
+        }
+
+        const grandTotal = grandPrompt + grandCompletion;
+        console.log(chalk.dim(`  ${'─'.repeat(modelWidth)}  ${'─'.repeat(12)}  ${'─'.repeat(12)}  ${'─'.repeat(12)}`));
+        console.log(
+            `  ${chalk.bold('Total'.padEnd(modelWidth))}  ${chalk.dim(grandPrompt.toLocaleString().padStart(12))}  ${chalk.dim(grandCompletion.toLocaleString().padStart(12))}  ${chalk.bold(grandTotal.toLocaleString().padStart(12))}`,
+        );
+        console.log();
+    });
+
 // ────────────────── Interactive Model Add ──────────────────
 
 async function addModelInteractive(): Promise<void> {
@@ -410,6 +452,13 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                 },
                 onTokenUsage: (p, c, tp, tc) => {
                     printTokenUsage(p, c, tp, tc);
+                    recordTokenUsage({
+                        model: config.provider.model,
+                        provider: config.provider.type,
+                        promptTokens: p,
+                        completionTokens: c,
+                        sessionId: session.id,
+                    });
                 },
             });
 

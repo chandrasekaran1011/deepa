@@ -125,6 +125,8 @@ export class AnthropicProvider implements LLMProvider {
         let currentToolId = '';
         let currentToolName = '';
         let currentToolArgs = '';
+        let inputTokens = 0;
+        let outputTokens = 0;
 
         try {
             while (true) {
@@ -143,6 +145,13 @@ export class AnthropicProvider implements LLMProvider {
                         const data = JSON.parse(trimmed.slice(6));
 
                         switch (data.type) {
+                            case 'message_start': {
+                                if (data.message?.usage) {
+                                    inputTokens = data.message.usage.input_tokens ?? 0;
+                                }
+                                break;
+                            }
+
                             case 'content_block_start': {
                                 const block = data.content_block;
                                 if (block?.type === 'tool_use') {
@@ -179,19 +188,19 @@ export class AnthropicProvider implements LLMProvider {
                             }
 
                             case 'message_delta': {
-                                // stop_reason available
+                                if (data.usage) {
+                                    outputTokens = data.usage.output_tokens ?? 0;
+                                }
                                 break;
                             }
 
                             case 'message_stop': {
                                 yield {
                                     type: 'done',
-                                    usage: data.usage
-                                        ? {
-                                            promptTokens: data.usage?.input_tokens ?? 0,
-                                            completionTokens: data.usage?.output_tokens ?? 0,
-                                        }
-                                        : undefined,
+                                    usage: {
+                                        promptTokens: inputTokens,
+                                        completionTokens: outputTokens,
+                                    },
                                 };
                                 break;
                             }

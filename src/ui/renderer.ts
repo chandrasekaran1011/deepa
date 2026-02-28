@@ -456,12 +456,11 @@ export function printImageAttachment(fileName: string): void {
 // ─── Token usage line ─────────────────────────────────────
 
 export function printTokenUsage(prompt: number, completion: number, totalP: number, totalC: number): void {
-    if (!process.env.DEEPA_SHOW_TOKENS) return;
     console.log(
         C.muted(`  tokens  `) +
-        chalk.dim(`this turn: ${prompt + completion}`) +
+        chalk.dim(`this turn: ${(prompt + completion).toLocaleString()}`) +
         C.muted('  ·  ') +
-        chalk.dim(`session: ${totalP + totalC}`),
+        chalk.dim(`session: ${(totalP + totalC).toLocaleString()}`),
     );
 }
 

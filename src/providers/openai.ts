@@ -63,6 +63,7 @@ export class OpenAIProvider implements LLMProvider {
             model: this.config.model,
             messages: this.convertMessages(messages),
             stream: true,
+            stream_options: { include_usage: true },
             max_completion_tokens: options?.maxTokens ?? this.config.maxTokens,
         };
 
@@ -131,6 +132,19 @@ export class OpenAIProvider implements LLMProvider {
                     try {
                         const data = JSON.parse(trimmed.slice(6));
                         const delta = data.choices?.[0]?.delta;
+
+                        // Usage-only chunk (sent after finish when stream_options.include_usage is true)
+                        if (!delta && data.usage) {
+                            yield {
+                                type: 'done',
+                                usage: {
+                                    promptTokens: data.usage.prompt_tokens ?? 0,
+                                    completionTokens: data.usage.completion_tokens ?? 0,
+                                },
+                            };
+                            continue;
+                        }
+
                         if (!delta) continue;
 
                         // Text content
@@ -169,16 +183,6 @@ export class OpenAIProvider implements LLMProvider {
                                     arguments: tc.arguments,
                                 };
                             }
-
-                            yield {
-                                type: 'done',
-                                usage: data.usage
-                                    ? {
-                                        promptTokens: data.usage.prompt_tokens ?? 0,
-                                        completionTokens: data.usage.completion_tokens ?? 0,
-                                    }
-                                    : undefined,
-                            };
                         }
                     } catch {
                         // Skip malformed JSON lines

@@ -17,6 +17,7 @@ import { createUseSkillTool } from '../tools/use-skill.js';
 import { connectMCPServers, MCPConnection } from '../mcp/client.js';
 import { listModels, getModel, addModel, removeModel, setDefaultModel, PROVIDER_PRESETS } from '../store/models.js';
 import { addMcpServer, removeMcpServer, listMcpServers } from '../store/mcp.js';
+import { recordTokenUsage } from '../store/tokens.js';
 import chalk from 'chalk';
 import type { Message, MessageContent } from '../types.js';
 
@@ -532,7 +533,15 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                     sendEvent('tool_result', { name, result, isError, callId: lastToolCallId });
                     lastToolCallId = null;
                 },
-                onTokenUsage: () => {},
+                onTokenUsage: (p, c) => {
+                    recordTokenUsage({
+                        model: config.provider.model,
+                        provider: config.provider.type,
+                        promptTokens: p,
+                        completionTokens: c,
+                        sessionId: session.id,
+                    });
+                },
             });
 
             conversationHistory = messages;
