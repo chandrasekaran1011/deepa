@@ -13,6 +13,7 @@ import { loadAgentsMd } from '../context/agents-md.js';
 import { createProvider } from '../providers/registry.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { loadSkills } from '../plugins/skills.js';
+import { UI_HTML } from './ui-html.js';
 import { createUseSkillTool } from '../tools/use-skill.js';
 import { connectMCPServers, MCPConnection } from '../mcp/client.js';
 import { listModels, getModel, addModel, removeModel, setDefaultModel, PROVIDER_PRESETS } from '../store/models.js';
@@ -136,10 +137,6 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
 
     const cwd = process.cwd();
     const config = loadConfig(cwd, flags);
-
-    // Serve React UI from ui/dist
-    const uiDistPath = path.resolve(__dirname, '../../ui/dist');
-    app.use(express.static(uiDistPath));
 
     // Session and context
     let session: Session = loadLatestSession(cwd) || createSession(cwd);
@@ -567,7 +564,8 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
     // SPA catch-all
     app.use((req, res, next) => {
         if (req.method === 'GET' && !req.path.startsWith('/api/')) {
-            res.sendFile(path.resolve(uiDistPath, 'index.html'));
+            res.setHeader('Content-Type', 'text/html');
+            res.send(UI_HTML);
         } else {
             next();
         }
