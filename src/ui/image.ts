@@ -4,7 +4,7 @@
 
 import { readFileSync, existsSync, statSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { execSync } from 'child_process';
-import { extname, resolve, join, basename } from 'path';
+import { extname, resolve, join, basename, isAbsolute } from 'path';
 import { platform, homedir, tmpdir } from 'os';
 import type { ImageContent } from '../types.js';
 
@@ -34,7 +34,7 @@ export function isImagePath(input: string): boolean {
  * Returns { content, warning } if file is too large.
  */
 export function loadImageAsBase64(filePath: string, cwd?: string): { image: ImageContent; warning?: string } | null {
-    const absPath = filePath.startsWith('/') ? filePath : resolve(cwd || process.cwd(), filePath);
+    const absPath = isAbsolute(filePath) ? filePath : resolve(cwd || process.cwd(), filePath);
 
     if (!existsSync(absPath)) return null;
 

@@ -28,9 +28,10 @@ export const searchGrepTool: Tool = {
         // Build grep command - try rg first, fall back to grep
         const args: string[] = [];
         let cmd: string;
+        const isWin = process.platform === 'win32';
 
         try {
-            execSync('which rg', { stdio: 'ignore' });
+            execSync(isWin ? 'where rg' : 'which rg', { stdio: 'ignore' });
             cmd = 'rg';
             args.push('--json', '-n');
             if (!isRegex) args.push('-F');
@@ -56,7 +57,10 @@ export const searchGrepTool: Tool = {
         }
 
         try {
-            const output = execSync(`${cmd} ${args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`, {
+            const quote = isWin
+                ? (a: string) => `"${a.replace(/"/g, '\\"')}"`
+                : (a: string) => `'${a.replace(/'/g, "'\\''")}'`;
+            const output = execSync(`${cmd} ${args.map(quote).join(' ')}`, {
                 encoding: 'utf-8',
                 maxBuffer: 1024 * 1024,
                 timeout: 30000,

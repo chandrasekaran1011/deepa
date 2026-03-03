@@ -28,9 +28,10 @@ export const searchFilesTool: Tool = {
         // Try fd first, fall back to find
         let cmd: string;
         let args: string[];
+        const isWin = process.platform === 'win32';
 
         try {
-            execSync('which fd', { stdio: 'ignore' });
+            execSync(isWin ? 'where fd' : 'which fd', { stdio: 'ignore' });
             cmd = 'fd';
             args = [];
             if (!isRegex) args.push('-g'); // glob mode
@@ -59,7 +60,10 @@ export const searchFilesTool: Tool = {
         }
 
         try {
-            const output = execSync(`${cmd} ${args.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`, {
+            const quote = isWin
+                ? (a: string) => `"${a.replace(/"/g, '\\"')}"`
+                : (a: string) => `'${a.replace(/'/g, "'\\''")}'`;
+            const output = execSync(`${cmd} ${args.map(quote).join(' ')}`, {
                 encoding: 'utf-8',
                 maxBuffer: 1024 * 1024,
                 timeout: 15000,

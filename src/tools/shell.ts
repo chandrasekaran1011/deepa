@@ -2,7 +2,7 @@
 // Detects inline scripts (node -e, python -c, etc.) and auto-converts them
 // to temp files for safer, more reliable execution.
 
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { resolvePath } from './resolve-path.js';
@@ -23,8 +23,13 @@ const activeBackgroundProcesses: number[] = [];
 export function killBackgroundProcesses(): void {
     for (const pid of activeBackgroundProcesses) {
         try {
-            // Negative PID kills the process group
-            process.kill(-pid);
+            if (process.platform === 'win32') {
+                // Windows: use taskkill to kill entire process tree
+                execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
+            } else {
+                // Unix: negative PID kills the process group
+                process.kill(-pid);
+            }
         } catch {
             try {
                 process.kill(pid); // Fallback
@@ -119,11 +124,14 @@ function detectInlineScript(command: string): InlineScript | null {
 
 function runCommand(command: string, workDir: string, timeout: number, background = false): Promise<ToolResult> {
     return new Promise<ToolResult>((resolvePromise) => {
-        const child = spawn('sh', ['-c', command], {
+        const isWin = process.platform === 'win32';
+        const shell = isWin ? (process.env.ComSpec || 'cmd.exe') : 'sh';
+        const shellArgs = isWin ? ['/c', command] : ['-c', command];
+        const child = spawn(shell, shellArgs, {
             cwd: workDir,
             env: { ...process.env, PAGER: 'cat' },
             timeout: background ? undefined : timeout,
-            detached: background,
+            detached: background && !isWin,
             stdio: background ? 'ignore' : 'pipe',
         });
 
