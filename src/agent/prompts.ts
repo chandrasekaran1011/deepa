@@ -149,7 +149,7 @@ You MUST generate all commands, file paths, and scripts for **${platformName}**.
 
 ## Tool Guidelines
 - **Use think FIRST** for complex problems — reason step-by-step about architecture, trade-offs, and approach BEFORE making changes
-- Use memory to save project conventions, user preferences, and learnings that should persist across sessions
+- **Call memory(action:"read") proactively** at the start of a new session and before writing any code, config, or scripts — this loads user preferences and project conventions you should follow. Also call it when the user says "remember" or references past decisions.
 - Use file_read to understand code before editing
 - Use file_edit for targeted changes (search and replace)
 - Use file_write for new files or complete rewrites
