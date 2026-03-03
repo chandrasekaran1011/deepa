@@ -1,6 +1,6 @@
 {
   "name": "deepa-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Universal agentic CLI coding agent — supports OpenAI, Anthropic, local LLMs, MCP, plugins, and skills",
   "type": "module",
   "main": "dist/index.js",
@@ -13,7 +13,12 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "build:bin": "npm run build && npx pkg . --targets node18-macos-x64,node18-macos-arm64,node18-linux-x64,node18-linux-arm64,node18-win-x64 --out-path bin"
+  },
+  "pkg": {
+    "scripts": "dist/**/*.js",
+    "assets": "package.json"
   },
   "keywords": [
     "cli",

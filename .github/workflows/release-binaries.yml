@@ -1,0 +1,48 @@
+name: Publish Standalone Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_publish:
+    name: Build binaries
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build standalone binaries
+        run: |
+          npm run build
+          # Use npx pkg to bundle the application
+          npx pkg . --targets node18-macos-x64,node18-macos-arm64,node18-linux-x64,node18-linux-arm64,node18-win-x64 --out-path bin
+
+      - name: Rename Windows binary
+        run: |
+          mv bin/deepa-cli-win-x64.exe bin/deepa-win-x64.exe || true
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            bin/deepa-cli-macos-x64
+            bin/deepa-cli-macos-arm64
+            bin/deepa-cli-linux-x64
+            bin/deepa-cli-linux-arm64
+            bin/deepa-win-x64.exe
