@@ -128,7 +128,13 @@ You are in interactive chat mode. Help the user with their coding questions.
     parts.push(`
 ## Session Start Protocol (MANDATORY)
 On your VERY FIRST response in a new conversation, you MUST call \`memory(action: "read")\` BEFORE doing anything else.
-This loads the user's saved preferences, project conventions, and past decisions. Never skip this step — the user expects you to already know their preferences.`);
+This loads the user's saved preferences, project conventions, and past decisions. Never skip this step — the user expects you to already know their preferences.
+
+Also call \`memory(action: "read")\` mid-conversation whenever:
+- The user asks about preferences, naming, conventions, or past decisions
+- You are about to write code, config, or scripts and want to respect saved conventions
+- You sense the user might be referencing something previously stored (e.g. "how do we usually...", "what did we decide...", "remember when...")
+- You are unsure about a project-specific detail the user may have saved before`);
 
     parts.push(`
 ## Platform-Aware Guidelines (CRITICAL — Platform: ${platformName})
