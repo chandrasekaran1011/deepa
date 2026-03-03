@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { Tool } from './registry.js';
 import type { ToolResult, ToolContext } from '../types.js';
-import { saveMemory, loadMemory, listMemory } from '../context/memory.js';
+import { saveMemory, listMemory, readMemoryByKey, listMemoryWithPreview } from '../context/memory.js';
 
 const parameters = z.object({
     action: z.enum(['read', 'save', 'list']).describe(
@@ -37,11 +37,27 @@ export const memoryTool: Tool = {
 
         switch (action) {
             case 'read': {
-                const memory = loadMemory(context.cwd);
-                if (!memory) {
+                if (key) {
+                    const entry = readMemoryByKey(key, context.cwd);
+                    if (!entry) {
+                        return { content: `Memory not found: "${key}"`, isError: true };
+                    }
+                    return { content: `[${key} (${entry.scope})]\n\n${entry.content}` };
+                }
+
+                // No key provided -> list all memories with previews
+                const entries = listMemoryWithPreview(context.cwd);
+                if (entries.length === 0) {
                     return { content: 'No memories saved yet. Use memory(action: "save") to store information.' };
                 }
-                return { content: `Saved memories:\n\n${memory}` };
+
+                const list = entries
+                    .map((e) => `- ${e.key} (${e.scope}): ${e.preview}${e.preview.length === 80 ? '...' : ''}`)
+                    .join('\n');
+
+                return {
+                    content: `Available memories (use memory(action: "read", key: "...") to read full content):\n\n${list}`
+                };
             }
 
             case 'save': {

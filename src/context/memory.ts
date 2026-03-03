@@ -96,3 +96,52 @@ export function listMemory(cwd: string): { key: string; scope: string }[] {
 
     return results;
 }
+
+/**
+ * Read a single memory entry by key. Checks project scope first, then global.
+ */
+export function readMemoryByKey(key: string, cwd: string): { content: string; scope: string } | undefined {
+    const sanitized = key.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    // Check project scope first
+    const projDir = join(MEMORY_DIR, 'projects', projectKey(cwd));
+    const projFile = join(projDir, `${sanitized}.md`);
+    if (existsSync(projFile)) {
+        return { content: readFileSync(projFile, 'utf-8').trim(), scope: 'project' };
+    }
+
+    // Check global scope
+    const globalFile = join(MEMORY_DIR, 'global', `${sanitized}.md`);
+    if (existsSync(globalFile)) {
+        return { content: readFileSync(globalFile, 'utf-8').trim(), scope: 'global' };
+    }
+
+    return undefined;
+}
+
+/**
+ * List all memory keys with a one-line preview of each entry's content.
+ */
+export function listMemoryWithPreview(cwd: string): { key: string; scope: string; preview: string }[] {
+    const results: { key: string; scope: string; preview: string }[] = [];
+
+    const globalDir = join(MEMORY_DIR, 'global');
+    if (existsSync(globalDir)) {
+        for (const file of readdirSync(globalDir).filter((f) => f.endsWith('.md'))) {
+            const content = readFileSync(join(globalDir, file), 'utf-8').trim();
+            const preview = content.split('\n')[0].slice(0, 80);
+            results.push({ key: file.replace('.md', ''), scope: 'global', preview });
+        }
+    }
+
+    const projDir = join(MEMORY_DIR, 'projects', projectKey(cwd));
+    if (existsSync(projDir)) {
+        for (const file of readdirSync(projDir).filter((f) => f.endsWith('.md'))) {
+            const content = readFileSync(join(projDir, file), 'utf-8').trim();
+            const preview = content.split('\n')[0].slice(0, 80);
+            results.push({ key: file.replace('.md', ''), scope: 'project', preview });
+        }
+    }
+
+    return results;
+}

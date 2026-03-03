@@ -151,8 +151,7 @@ describe('Memory Tool', () => {
     });
 
     describe('read action', () => {
-        it('reads saved memories', async () => {
-            // Save first
+        it('reads summary of saved memories when no key is provided', async () => {
             await memoryTool.execute(
                 {
                     action: 'save',
@@ -167,8 +166,34 @@ describe('Memory Tool', () => {
                 { action: 'read' },
                 makeContext(),
             );
+            // It should be in the preview list
+            expect(result.content).toContain('test_read_note');
             expect(result.content).toContain('Remember this fact');
-            expect(result.isError).toBeUndefined();
+            expect(result.content).toContain('Available memories');
+        });
+
+        it('reads full contents when a specific key is provided', async () => {
+            const longContent = 'Line 1\nLine 2\nLine 3\nLine 4\nVery long detailed content that should not be in the preview.';
+            await memoryTool.execute(
+                {
+                    action: 'save',
+                    key: 'test_read_specific',
+                    content: longContent,
+                    scope: 'project',
+                },
+                makeContext(),
+            );
+
+            // General read should have preview (first line)
+            const listResult = await memoryTool.execute({ action: 'read' }, makeContext());
+            expect(listResult.content).toContain('test_read_specific');
+            expect(listResult.content).toContain('Line 1');
+            expect(listResult.content).not.toContain('Very long detailed content');
+
+            // Targeted read should have full content
+            const specificResult = await memoryTool.execute({ action: 'read', key: 'test_read_specific' }, makeContext());
+            expect(specificResult.content).toContain(longContent);
+            expect(specificResult.content).toContain('[test_read_specific (project)]');
         });
     });
 
