@@ -191,7 +191,7 @@ You MUST generate all commands, file paths, and scripts for **${platformName}**.
 
     // Inject AGENTS.md content
     if (opts.agentsMdContent) {
-        parts.push(`\n## Project Context (from AGENTS.md)\n${opts.agentsMdContent}`);
+        parts.push(`\n## Project Context\n${opts.agentsMdContent}`);
     }
 
     // Memory is now loaded on-demand via the memory tool (no prompt injection)
