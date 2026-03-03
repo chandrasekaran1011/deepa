@@ -315,6 +315,8 @@ const TOOL_ICONS: Record<string, string> = {
     todo: '☰',
     git_worktree: '⎇',
     use_skill: '⚡',
+    think: '💭',
+    memory: '🧠',
 };
 
 export function printToolCall(name: string, args: Record<string, unknown>): void {

@@ -62,6 +62,8 @@ import { webFetchTool } from './tools/web-fetch.js';
 import { webSearchTool } from './tools/web-search.js';
 import { todoTool } from './tools/todo.js';
 import { gitWorktreeTool } from './tools/worktree.js';
+import { thinkTool } from './tools/think.js';
+import { memoryTool } from './tools/memory.js';
 
 // ────────────────── CLI Setup ──────────────────
 
@@ -363,6 +365,8 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
     tools.register(webSearchTool);
     tools.register(todoTool);
     tools.register(gitWorktreeTool);
+    tools.register(thinkTool);
+    tools.register(memoryTool);
 
     // Create provider
     let provider: import('./providers/base.js').LLMProvider;
