@@ -128,7 +128,15 @@ You are in interactive chat mode. Help the user with their coding questions.
 
 ## Binary Files
 - NEVER write raw binary content with file_write — it blocks .pptx, .xlsx, .pdf, .docx, images, and other binary formats
-- To create or convert binary files (PowerPoint, PDF, Excel, etc.), write a script using an appropriate library and run it with the shell tool`);
+- To create or convert binary files (PowerPoint, PDF, Excel, etc.), write a script using an appropriate library and run it with the shell tool
+
+## Python Development Rules
+- Whenever you write a .py file or create any Python project, you MUST:
+  1. Create a virtual environment: run \`python3 -m venv .venv\` in the project directory (skip if .venv already exists)
+  2. Create or update a \`requirements.txt\` listing all third-party dependencies used by the code
+  3. Install dependencies: run \`.venv/bin/pip install -r requirements.txt\`
+- Always use \`.venv/bin/python\` (not the system python) to run Python scripts
+- Never ask the user to set up the venv manually — you handle it automatically`);
 
     // Inject AGENTS.md content
     if (opts.agentsMdContent) {
