@@ -5,7 +5,6 @@ import { platform } from 'os';
 export function buildSystemPrompt(opts: {
     mode: 'chat' | 'plan' | 'exec';
     agentsMdContent?: string;
-    memoryContent?: string;
     skillDescriptions?: string[];
     agentDescriptions?: string[];
     cwd: string;
@@ -182,10 +181,7 @@ You MUST generate all commands, file paths, and scripts for **${platformName}**.
         parts.push(`\n## Project Context (from AGENTS.md)\n${opts.agentsMdContent}`);
     }
 
-    // Inject memory
-    if (opts.memoryContent) {
-        parts.push(`\n## Remembered Context\n${opts.memoryContent}`);
-    }
+    // Memory is now loaded on-demand via the memory tool (no prompt injection)
 
     // Inject agent descriptions (auto-delegation via spawn_agent)
     if (opts.agentDescriptions && opts.agentDescriptions.length > 0) {

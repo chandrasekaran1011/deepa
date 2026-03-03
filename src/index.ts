@@ -391,7 +391,7 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
 
     // Load context
     const agentsMdContent = loadAgentsMd(cwd);
-    const memoryContent = loadMemory(cwd);
+
     const skillRegistry = loadSkills(cwd);
     const skillDescriptions = skillRegistry.getDescriptions();
 
@@ -439,7 +439,7 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
         printInfo(`resumed session  ·  ${session.messages.length} messages`);
     }
     if (agentsMdContent) printInfo('AGENTS.md loaded');
-    if (memoryContent) printInfo('memory loaded');
+
     if (skillRegistry.size > 0) printInfo(`${skillRegistry.size} skill${skillRegistry.size > 1 ? 's' : ''} loaded`);
     if (agentRegistry.size > 0) printInfo(`${agentRegistry.size} agent${agentRegistry.size > 1 ? 's' : ''} loaded  ·  /agents to list`);
 
@@ -468,7 +468,7 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                 config: updatedConfig,
                 cwd,
                 agentsMdContent,
-                memoryContent,
+
                 skillDescriptions,
                 agentDescriptions: agentRegistry.size > 0 ? agentDescriptions : undefined,
                 signal: controller.signal,
@@ -757,14 +757,16 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                     }
                     break;
 
-                case 'memory':
-                    if (memoryContent) {
+                case 'memory': {
+                    const currentMemory = loadMemory(cwd);
+                    if (currentMemory) {
                         console.log(chalk.dim('\n  Memory entries:'));
-                        console.log(chalk.dim(`  ${memoryContent.split('\n').join('\n  ')}`));
+                        console.log(chalk.dim(`  ${currentMemory.split('\n').join('\n  ')}`));
                     } else {
                         console.log(chalk.dim('  No memory entries.'));
                     }
                     break;
+                }
 
                 case 'session':
                     console.log(chalk.dim(`  Session: ${session.id}`));

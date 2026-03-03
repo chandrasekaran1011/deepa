@@ -105,45 +105,25 @@ describe('buildSystemPrompt', () => {
             expect(prompt).not.toContain('AGENTS.md');
         });
 
-        it('injects memory content when provided', () => {
+        it('does not inject memory into prompt (demand-only via memory tool)', () => {
             const prompt = buildSystemPrompt({
                 ...BASE_OPTS,
-                memoryContent: 'User prefers TypeScript strict mode.',
             });
-            expect(prompt).toContain('User prefers TypeScript strict mode.');
-            expect(prompt).toContain('Remembered Context');
-        });
-
-        it('does not add memory section when absent', () => {
-            const prompt = buildSystemPrompt(BASE_OPTS);
             expect(prompt).not.toContain('Remembered Context');
-        });
-
-        it('injects skill descriptions as a list', () => {
-            const prompt = buildSystemPrompt({
-                ...BASE_OPTS,
-                skillDescriptions: ['Deploy to Vercel', 'Run database migrations'],
-            });
-            expect(prompt).toContain('Deploy to Vercel');
-            expect(prompt).toContain('Run database migrations');
-            expect(prompt).toContain('Available Skills');
-        });
-
-        it('does not add skills section with empty array', () => {
-            const prompt = buildSystemPrompt({ ...BASE_OPTS, skillDescriptions: [] });
-            expect(prompt).not.toContain('Available Skills');
+            // But the prompt should mention the memory tool for on-demand access
+            expect(prompt).toContain('memory');
         });
 
         it('injects all context sections when all provided', () => {
             const prompt = buildSystemPrompt({
                 ...BASE_OPTS,
                 agentsMdContent: 'agents context',
-                memoryContent: 'memory context',
                 skillDescriptions: ['skill one'],
             });
             expect(prompt).toContain('agents context');
-            expect(prompt).toContain('memory context');
             expect(prompt).toContain('skill one');
+            // Memory is NOT injected — accessed on-demand via tool
+            expect(prompt).not.toContain('Remembered Context');
         });
     });
 });

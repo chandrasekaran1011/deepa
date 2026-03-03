@@ -9,7 +9,7 @@ import { runAgentLoop } from '../agent/loop.js';
 import { CLIFlags, loadConfig } from '../config.js';
 import { loadLatestSession, createSession, saveSession, loadSession, listSessions, Session } from '../context/history.js';
 import { loadAgentsMd } from '../context/agents-md.js';
-import { loadMemory } from '../context/memory.js';
+
 import { createProvider } from '../providers/registry.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { loadSkills } from '../plugins/skills.js';
@@ -146,7 +146,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
     let conversationHistory: Message[] = session.messages;
 
     const agentsMdContent = loadAgentsMd(cwd);
-    const memoryContent = loadMemory(cwd);
+
     const skillRegistry = loadSkills(cwd);
 
     // Provider
@@ -515,7 +515,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                 config: updatedConfig,
                 cwd,
                 agentsMdContent,
-                memoryContent,
+
                 skillDescriptions: skillRegistry.getDescriptions(),
                 signal: currentAbortController.signal,
                 confirmAction: async (description: string) => {

@@ -13,7 +13,6 @@ export interface LoopOptions {
     config: DeepaConfig;
     cwd: string;
     agentsMdContent?: string;
-    memoryContent?: string;
     skillDescriptions?: string[];
     agentDescriptions?: string[];
     signal?: AbortSignal;
@@ -77,7 +76,6 @@ export async function runAgentLoop(
         config,
         cwd,
         agentsMdContent,
-        memoryContent,
         skillDescriptions,
         agentDescriptions,
         signal,
@@ -93,7 +91,6 @@ export async function runAgentLoop(
     const systemPrompt = buildSystemPrompt({
         mode: config.mode,
         agentsMdContent,
-        memoryContent,
         skillDescriptions: isLocal ? undefined : skillDescriptions,
         agentDescriptions: isLocal ? undefined : agentDescriptions,
         cwd,
