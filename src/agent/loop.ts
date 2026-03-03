@@ -97,16 +97,29 @@ export async function runAgentLoop(
         isLocal,
     });
 
+    // Apply prompt injection boundaries to user input
+    let safeUserMessage = userMessage;
+    if (typeof userMessage === 'string') {
+        safeUserMessage = `<user_input>\n${userMessage}\n</user_input>`;
+    } else if (Array.isArray(userMessage)) {
+        safeUserMessage = userMessage.map((c) => {
+            if (c.type === 'text') {
+                return { ...c, text: `<user_input>\n${c.text}\n</user_input>` };
+            }
+            return c;
+        });
+    }
+
     const messages: Message[] = [
         { role: 'system', content: systemPrompt },
         ...history,
-        { role: 'user', content: userMessage },
+        { role: 'user', content: safeUserMessage },
     ];
 
     // Debug: log history state
     if (config.verbose) {
         const historySize = JSON.stringify(history).length;
-        process.stderr.write(chalk.dim(`[loop] history: ${history.length} msgs, ~${(historySize / 1024).toFixed(1)}KB | total messages: ${messages.length}\n`));
+        process.stderr.write(chalk.dim(`[loop] history: ${history.length} msgs, ~${(historySize / 1024).toFixed(1)} KB | total messages: ${messages.length} \n`));
     }
 
     const toolDefs = tools.getDefinitions();
@@ -160,8 +173,8 @@ export async function runAgentLoop(
                                     const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
                                     const snippet = rawArgs.slice(0, 200);
                                     process.stderr.write(chalk.dim(
-                                        `[loop] JSON.parse failed for ${chunk.name}: ${errMsg}\n` +
-                                        `[loop] raw args (first 200 chars): ${snippet}\n`,
+                                        `[loop] JSON.parse failed for ${chunk.name}: ${errMsg} \n` +
+                                        `[loop] raw args(first 200 chars): ${snippet} \n`,
                                     ));
                                 }
 
@@ -175,10 +188,10 @@ export async function runAgentLoop(
                                     parseError = salvaged.message;
                                 } else {
                                     parsedArgs = {};
-                                    parseError = `Tool call arguments were truncated (${argLen} chars of JSON, likely cut off by token limit). ` +
-                                        `To fix: break the file into smaller chunks using file_write with append=true. ` +
-                                        `First call: file_write with the first portion (append=false). ` +
-                                        `Then call file_write with append=true for each remaining portion. ` +
+                                    parseError = `Tool call arguments were truncated(${argLen} chars of JSON, likely cut off by token limit). ` +
+                                        `To fix: break the file into smaller chunks using file_write with append = true. ` +
+                                        `First call: file_write with the first portion(append = false). ` +
+                                        `Then call file_write with append = true for each remaining portion. ` +
                                         `Alternatively, write a script that generates the content and run it with shell.`;
                                 }
                             }
@@ -193,7 +206,7 @@ export async function runAgentLoop(
                         break;
 
                     case 'error':
-                        process.stderr.write(chalk.red(`\nLLM Error: ${chunk.error}\n`));
+                        process.stderr.write(chalk.red(`\nLLM Error: ${chunk.error} \n`));
                         return messages.slice(1); // Remove system prompt
 
                     case 'done':
@@ -222,7 +235,7 @@ export async function runAgentLoop(
             }
 
             const msg = err instanceof Error ? err.message : String(err);
-            process.stderr.write(chalk.red(`\nLLM Stream Error: ${msg}\n`));
+            process.stderr.write(chalk.red(`\nLLM Stream Error: ${msg} \n`));
 
             // If we already received some text or tool calls, we can proceed to save them.
             // Otherwise, we abort this turn.
@@ -270,12 +283,12 @@ export async function runAgentLoop(
                 // Salvaged truncated file_write — execute with partial content, then guide LLM
                 const writeResult = await tools.execute(tc.name, tc.parsedArgs, toolContext);
                 result = {
-                    content: `${writeResult.content}\n\n${tc.parseError}`,
+                    content: `${writeResult.content} \n\n${tc.parseError} `,
                     isError: false,
                 };
             } else if (tc.parseError) {
                 // Fully failed parse — give the LLM actionable feedback
-                result = { content: `Error: ${tc.parseError}`, isError: true as const };
+                result = { content: `Error: ${tc.parseError} `, isError: true as const };
             } else {
                 result = await tools.execute(tc.name, tc.parsedArgs, toolContext);
             }
@@ -294,6 +307,6 @@ export async function runAgentLoop(
     }
 
     // Max iterations reached
-    process.stderr.write(chalk.yellow(`\n⚠ Max iterations (${MAX_ITERATIONS}) reached\n`));
+    process.stderr.write(chalk.yellow(`\n⚠ Max iterations(${MAX_ITERATIONS}) reached\n`));
     return messages.slice(1);
 }

@@ -128,7 +128,10 @@ const upload = multer({
 
 export async function startUIServer(port: number, flags: CLIFlags): Promise<void> {
     const app = express();
-    app.use(cors());
+    // Restrict CORS to specific local origins to prevent Remote Code Execution via malicious websites
+    app.use(cors({
+        origin: [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/],
+    }));
     app.use(express.json({ limit: '50mb' }));
 
     const cwd = process.cwd();

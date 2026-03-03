@@ -28,6 +28,7 @@ import {
     printHelp,
     printToolCall,
     printToolResult,
+    printThinkingLine,
     printAssistant,
     printError,
     printInfo,
@@ -324,11 +325,26 @@ async function addModelInteractive(): Promise<void> {
 
 async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?: boolean } = {}): Promise<void> {
     const cwd = process.cwd();
+
+    // First-run: if no models configured, launch interactive setup
+    const existingModels = listModels();
+    if (existingModels.length === 0) {
+        console.log(chalk.bold('\n  Welcome to Deepa!'));
+        console.log(chalk.dim('  No models configured yet. Let\'s set one up.\n'));
+        await addModelInteractive();
+
+        // If user cancelled and still no models, exit
+        if (listModels().length === 0) {
+            console.log(chalk.yellow('\n  No model configured. Run `deepa model add` when ready.\n'));
+            return;
+        }
+    }
+
     const config = loadConfig(cwd, flags);
 
-    // Check if we have a model configured
+    // Check if cloud provider has API key
     if (!config.provider.apiKey && config.provider.type !== 'local') {
-        console.log(chalk.yellow('\n  ⚠ No model configured. Run `deepa model add` to set up a provider.\n'));
+        console.log(chalk.yellow('\n  ⚠ No API key for this model. Run `deepa model add` to reconfigure.\n'));
         return;
     }
 
@@ -421,7 +437,12 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
 
         startSpinner('thinking…');
         let streamedText = '';
-        const mdRenderer = new StreamingMarkdownRenderer();
+        let mdRenderer = new StreamingMarkdownRenderer();
+
+        // Thinking collapse state — tracks streamed lines so we can
+        // retroactively replace them with a dim one-liner when a tool call follows.
+        let thinkingLineCount = 0;
+        let currentThinkingText = '';
 
         try {
             const updatedConfig = { ...config, mode: currentMode };
@@ -438,17 +459,39 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                 onText: (text) => {
                     stopSpinner();
                     const rendered = mdRenderer.feed(text);
-                    if (rendered) process.stdout.write(rendered);
+                    if (rendered) {
+                        process.stdout.write(rendered);
+                        thinkingLineCount += (rendered.match(/\n/g) || []).length;
+                    }
                     streamedText += text;
+                    currentThinkingText += text;
                 },
                 onToolCall: (name, args) => {
-                    // Flush any buffered markdown before tool call display
+                    // Flush any buffered markdown before collapsing
                     const remaining = mdRenderer.flush();
-                    if (remaining) process.stdout.write(remaining);
+                    if (remaining) {
+                        process.stdout.write(remaining);
+                        thinkingLineCount += (remaining.match(/\n/g) || []).length;
+                    }
+
+                    // Retroactively collapse thinking text into a dim one-liner
+                    if (thinkingLineCount > 0 && currentThinkingText.trim()) {
+                        process.stdout.write(`\x1b[${thinkingLineCount}A\x1b[0J`);
+                        printThinkingLine(currentThinkingText);
+                    }
+
+                    // Reset for next text phase
+                    thinkingLineCount = 0;
+                    currentThinkingText = '';
+                    mdRenderer = new StreamingMarkdownRenderer();
+
                     printToolCall(name, args);
                 },
                 onToolResult: (name, result, isError) => {
                     printToolResult(name, result, isError);
+                    // Reset thinking trackers for next iteration
+                    thinkingLineCount = 0;
+                    currentThinkingText = '';
                 },
                 onTokenUsage: (p, c, tp, tc) => {
                     printTokenUsage(p, c, tp, tc);
