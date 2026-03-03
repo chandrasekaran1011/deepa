@@ -123,6 +123,13 @@ You are in interactive chat mode. Help the user with their coding questions.
 - Prefer showing code over explaining theory`);
     }
 
+    // Session start protocol — placed AFTER mode instructions, BEFORE tool guidelines
+    // This ensures the agent always checks memory first in any mode
+    parts.push(`
+## Session Start Protocol (MANDATORY)
+On your VERY FIRST response in a new conversation, you MUST call \`memory(action: "read")\` BEFORE doing anything else.
+This loads the user's saved preferences, project conventions, and past decisions. Never skip this step — the user expects you to already know their preferences.`);
+
     parts.push(`
 ## Platform-Aware Guidelines (CRITICAL — Platform: ${platformName})
 You MUST generate all commands, file paths, and scripts for **${platformName}**.${isWin ? `
@@ -149,7 +156,7 @@ You MUST generate all commands, file paths, and scripts for **${platformName}**.
 
 ## Tool Guidelines
 - **Use think FIRST** for complex problems — reason step-by-step about architecture, trade-offs, and approach BEFORE making changes
-- **Call memory(action:"read") proactively** at the start of a new session and before writing any code, config, or scripts — this loads user preferences and project conventions you should follow. Also call it when the user says "remember" or references past decisions.
+- Use \`memory(action: "save")\` to persist user preferences, project conventions, and important decisions for future sessions
 - Use file_read to understand code before editing
 - Use file_edit for targeted changes (search and replace)
 - Use file_write for new files or complete rewrites
