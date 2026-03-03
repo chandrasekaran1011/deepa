@@ -100,6 +100,7 @@ export interface ProviderConfig {
     baseUrl?: string;
     model: string;
     maxTokens: number;
+    apiVersion?: string;
 }
 
 export interface MCPServerConfig {

@@ -6,7 +6,7 @@ import type {
     TextContent, ImageContent, ToolCallContent, ToolResultContent,
 } from '../types.js';
 
-const ANTHROPIC_API_VERSION = '2024-10-22';
+const ANTHROPIC_API_VERSION = '2023-06-01';
 const MAX_RETRIES = 3;
 
 function sleep(ms: number): Promise<void> {
@@ -41,6 +41,7 @@ export interface AnthropicProviderConfig {
     baseUrl?: string;
     model: string;
     maxTokens: number;
+    apiVersion?: string;
 }
 
 export class AnthropicProvider implements LLMProvider {
@@ -97,7 +98,7 @@ export class AnthropicProvider implements LLMProvider {
                 headers: {
                     'Content-Type': 'application/json',
                     'x-api-key': this.config.apiKey,
-                    'anthropic-version': ANTHROPIC_API_VERSION,
+                    'anthropic-version': this.config.apiVersion || ANTHROPIC_API_VERSION,
                 },
                 body: JSON.stringify(body),
                 signal,
