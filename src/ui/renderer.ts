@@ -277,6 +277,14 @@ export function printConfig(config: {
     console.log('  ' + chalk.hex('#374151')('─'.repeat(cols - 4)));
     console.log();
 
+    // Security warning for high autonomy
+    if (config.autonomy === 'high') {
+        console.log('  ' + C.error.bold('⚠ SECURITY WARNING: High Autonomy Enabled'));
+        console.log('  ' + C.error('The agent can execute shell operations (e.g., spawn processes) without confirmation.'));
+        console.log('  ' + C.error('Exercise caution, as indirect prompt injection from malicious files could lead to RCE.'));
+        console.log();
+    }
+
     // Quick-ref hint line
     const hints = [
         ['/help', 'commands'],
@@ -414,6 +422,15 @@ export function printToolResult(name: string, result: string, isError: boolean):
             console.log('    ' + C.muted(`… ${lines.length - maxPreview} more lines`));
         }
     }
+}
+
+// ─── Thinking line (collapsed one-liner) ─────────────────
+
+export function printThinkingLine(text: string): void {
+    const firstLine = text.trim().split('\n').find((l) => l.trim()) || 'Thinking';
+    const summary = firstLine.slice(0, 70);
+    const ellipsis = firstLine.length > 70 ? '…' : '';
+    console.log('  ' + C.muted('▸ ') + chalk.dim(summary + ellipsis));
 }
 
 // ─── Assistant output ─────────────────────────────────────
