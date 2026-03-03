@@ -1,6 +1,6 @@
 // ─── Persistent memory system ───
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
 import { join, basename, resolve } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
@@ -72,6 +72,28 @@ export function saveMemory(
 
     const filePath = join(dir, `${key.replace(/[^a-zA-Z0-9_-]/g, '_')}.md`);
     writeFileSync(filePath, content, 'utf-8');
+}
+
+/**
+ * Append to an existing memory entry. Creates it if it doesn't exist.
+ */
+export function appendMemory(
+    key: string,
+    content: string,
+    scope: 'global' | 'project',
+    cwd: string,
+): void {
+    const dir =
+        scope === 'global'
+            ? ensureMemoryDir('global')
+            : ensureMemoryDir(`projects/${projectKey(cwd)}`);
+
+    const filePath = join(dir, `${key.replace(/[^a-zA-Z0-9_-]/g, '_')}.md`);
+    if (existsSync(filePath)) {
+        appendFileSync(filePath, `\n\n${content}`, 'utf-8');
+    } else {
+        writeFileSync(filePath, content, 'utf-8');
+    }
 }
 
 /**

@@ -162,7 +162,7 @@ You MUST generate all commands, file paths, and scripts for **${platformName}**.
 
 ## Tool Guidelines
 - **Use think FIRST** for complex problems — reason step-by-step about architecture, trade-offs, and approach BEFORE making changes
-- Use \`memory(action: "save")\` to persist user preferences, project conventions, and important decisions for future sessions
+- Use \`memory(action: "save")\` to create a new persistent memory, or \`memory(action: "append")\` to safely add new information to an existing memory without overwriting.
 - Use file_read to understand code before editing
 - Use file_edit for targeted changes (search and replace)
 - Use file_write for new files or complete rewrites

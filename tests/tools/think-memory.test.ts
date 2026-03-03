@@ -150,6 +150,44 @@ describe('Memory Tool', () => {
         });
     });
 
+    describe('append action', () => {
+        it('appends to an existing memory', async () => {
+            // Setup: save first
+            await memoryTool.execute(
+                { action: 'save', key: 'test_append_note', content: 'Line 1.', scope: 'project' },
+                makeContext()
+            );
+
+            // Append
+            const result = await memoryTool.execute(
+                { action: 'append', key: 'test_append_note', content: 'Line 2.', scope: 'project' },
+                makeContext()
+            );
+
+            expect(result.isError).toBeUndefined();
+            expect(result.content).toContain('Memory appended');
+            expect(result.content).toContain('test_append_note');
+
+            // Verify content
+            const filePath = join(MEMORY_DIR, 'projects', Object.keys({}).length === 0 ? '' : '', 'test_append_note.md'); // wait, project hash path is annoying to guess. Let's just read via the tool!
+            const readResult = await memoryTool.execute({ action: 'read', key: 'test_append_note' }, makeContext());
+            expect(readResult.content).toContain('Line 1.');
+            expect(readResult.content).toContain('Line 2.');
+        });
+
+        it('creates a new memory if appending to non-existent key', async () => {
+            const result = await memoryTool.execute(
+                { action: 'append', key: 'test_append_new', content: 'First line.', scope: 'global' },
+                makeContext()
+            );
+
+            expect(result.isError).toBeUndefined();
+            const filePath = join(MEMORY_DIR, 'global', 'test_append_new.md');
+            expect(existsSync(filePath)).toBe(true);
+            expect(readFileSync(filePath, 'utf-8')).toBe('First line.');
+        });
+    });
+
     describe('read action', () => {
         it('reads summary of saved memories when no key is provided', async () => {
             await memoryTool.execute(

@@ -5,11 +5,11 @@
 import { z } from 'zod';
 import type { Tool } from './registry.js';
 import type { ToolResult, ToolContext } from '../types.js';
-import { saveMemory, listMemory, readMemoryByKey, listMemoryWithPreview } from '../context/memory.js';
+import { saveMemory, appendMemory, listMemory, readMemoryByKey, listMemoryWithPreview } from '../context/memory.js';
 
 const parameters = z.object({
-    action: z.enum(['read', 'save', 'list']).describe(
-        'read: load all saved memories. save: store a new memory. list: show all memory keys.',
+    action: z.enum(['read', 'save', 'append', 'list']).describe(
+        'read: load all saved memories. save: store a new memory (overwrites). append: add to an existing memory. list: show all memory keys.',
     ),
     key: z.string().optional().describe(
         'Memory key name (required for save). Use descriptive, snake_case names like "project_conventions" or "user_preferences".',
@@ -79,6 +79,28 @@ export const memoryTool: Tool = {
 
                 return {
                     content: `Memory saved: "${key}" (${resolvedScope} scope). This will be available in future sessions.`,
+                };
+            }
+
+            case 'append': {
+                if (!key) {
+                    return {
+                        content: 'Error: "key" is required for append action.',
+                        isError: true,
+                    };
+                }
+                if (!content) {
+                    return {
+                        content: 'Error: "content" is required for append action.',
+                        isError: true,
+                    };
+                }
+
+                const resolvedScope = scope ?? 'project';
+                appendMemory(key, content, resolvedScope, context.cwd);
+
+                return {
+                    content: `Memory appended: "${key}" (${resolvedScope} scope).`,
                 };
             }
 
