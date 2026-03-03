@@ -15,6 +15,7 @@ export interface LoopOptions {
     agentsMdContent?: string;
     memoryContent?: string;
     skillDescriptions?: string[];
+    agentDescriptions?: string[];
     signal?: AbortSignal;
     onText?: (text: string) => void;
     onToolCall?: (name: string, args: Record<string, unknown>) => void;
@@ -78,6 +79,7 @@ export async function runAgentLoop(
         agentsMdContent,
         memoryContent,
         skillDescriptions,
+        agentDescriptions,
         signal,
         onText,
         onToolCall,
@@ -93,6 +95,7 @@ export async function runAgentLoop(
         agentsMdContent,
         memoryContent,
         skillDescriptions: isLocal ? undefined : skillDescriptions,
+        agentDescriptions: isLocal ? undefined : agentDescriptions,
         cwd,
         isLocal,
     });

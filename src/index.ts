@@ -11,7 +11,9 @@ import { loadAgentsMd } from './context/agents-md.js';
 import { loadMemory } from './context/memory.js';
 import { createSession, saveSession, loadLatestSession, type Session } from './context/history.js';
 import { loadSkills } from './plugins/skills.js';
+import { loadAgents } from './plugins/agents.js';
 import { createUseSkillTool } from './tools/use-skill.js';
+import { createSpawnAgentTool } from './tools/spawn-agent.js';
 import { connectMCPServers, disconnectMCPServers, type MCPConnection } from './mcp/client.js';
 import {
     addModel, removeModel, listModels, setDefaultModel, getModel,
@@ -389,9 +391,18 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
     const skillRegistry = loadSkills(cwd);
     const skillDescriptions = skillRegistry.getDescriptions();
 
+    // Load agents
+    const agentRegistry = loadAgents(cwd);
+    const agentDescriptions = agentRegistry.getDescriptions();
+
     // Register use_skill tool if skills exist (progressive disclosure)
     if (skillRegistry.size > 0) {
         tools.register(createUseSkillTool(skillRegistry));
+    }
+
+    // Register spawn_agent tool if agents exist
+    if (agentRegistry.size > 0) {
+        tools.register(createSpawnAgentTool(agentRegistry, tools, provider, config));
     }
 
     // Session
@@ -426,6 +437,7 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
     if (agentsMdContent) printInfo('AGENTS.md loaded');
     if (memoryContent) printInfo('memory loaded');
     if (skillRegistry.size > 0) printInfo(`${skillRegistry.size} skill${skillRegistry.size > 1 ? 's' : ''} loaded`);
+    if (agentRegistry.size > 0) printInfo(`${agentRegistry.size} agent${agentRegistry.size > 1 ? 's' : ''} loaded  ·  /agents to list`);
 
     let currentMode = config.mode;
     let conversationHistory: Message[] = session.messages;
@@ -454,6 +466,7 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                 agentsMdContent,
                 memoryContent,
                 skillDescriptions,
+                agentDescriptions: agentRegistry.size > 0 ? agentDescriptions : undefined,
                 signal: controller.signal,
                 confirmAction,
                 onText: (text) => {
@@ -706,6 +719,22 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
                         printInfo(`autonomy → ${args[0]}`);
                     } else {
                         printInfo(`autonomy: ${config.autonomy}  ·  options: low · medium · high`);
+                    }
+                    break;
+
+                case 'agents':
+                    if (agentRegistry.size > 0) {
+                        console.log(chalk.bold('\n  Available Agents:\n'));
+                        for (const agent of agentRegistry.list()) {
+                            const toolInfo = agent.tools ? agent.tools.join(', ') : 'all tools';
+                            console.log(`  ${chalk.hex('#818CF8')('◆')} ${chalk.cyan.bold(agent.name)}  ${chalk.dim(`[${agent.model} · ${toolInfo}]`)}`);
+                            if (agent.description) {
+                                console.log(chalk.dim(`    ${agent.description}`));
+                            }
+                            console.log('');
+                        }
+                    } else {
+                        console.log(chalk.dim('  No agents loaded. Add .md files to .deepa/agents/'));
                     }
                     break;
 

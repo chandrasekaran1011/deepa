@@ -7,6 +7,7 @@ export function buildSystemPrompt(opts: {
     agentsMdContent?: string;
     memoryContent?: string;
     skillDescriptions?: string[];
+    agentDescriptions?: string[];
     cwd: string;
     isLocal?: boolean;
 }): string {
@@ -146,6 +147,17 @@ You are in interactive chat mode. Help the user with their coding questions.
     // Inject memory
     if (opts.memoryContent) {
         parts.push(`\n## Remembered Context\n${opts.memoryContent}`);
+    }
+
+    // Inject agent descriptions (auto-delegation via spawn_agent)
+    if (opts.agentDescriptions && opts.agentDescriptions.length > 0) {
+        parts.push(`\n## Available Agents
+Use \`spawn_agent\` when a task matches an agent's description below. Rules:
+- The subagent runs in **complete isolation** — no access to the current conversation
+- Pass ALL needed context explicitly in the \`task\` string
+- Prefer subagents for: code review, security scans, research, verbose one-off tasks
+
+${opts.agentDescriptions.join('\n')}`);
     }
 
     // Inject skill descriptions (progressive disclosure — descriptions only, not full instructions)
