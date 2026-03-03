@@ -235,7 +235,9 @@ export function parseFrontmatter(content: string): {
     frontmatter: Record<string, string>;
     body: string;
 } {
-    const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    // Normalize CRLF → LF for cross-platform compatibility (Windows saves \r\n)
+    const normalized = content.replace(/\r\n/g, '\n');
+    const match = normalized.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
     if (!match) {
         return { frontmatter: {}, body: content };
     }
