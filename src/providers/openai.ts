@@ -35,6 +35,114 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
     return fetch(url, init);
 }
 
+/**
+ * Filters `<think>...</think>` blocks from streamed text.
+ * Local models (Qwen, DeepSeek, etc.) emit reasoning inside these tags.
+ *
+ * Handles multiple patterns seen in the wild:
+ *   1. `<think>...content...</think>` — standard wrapped thinking
+ *   2. Content starts directly with thinking (LM Studio strips `<think>`),
+ *      only `</think>` appears in the stream
+ *   3. Multiple `</think>` tags scattered through the response
+ */
+class ThinkTagFilter {
+    private inside = false;
+    private buf = '';
+    private seenAnyOutput = false; // true once we've emitted non-empty text
+
+    /** Feed a text chunk, returns the text to emit (may be empty). */
+    feed(text: string): string {
+        this.buf += text;
+        let out = '';
+
+        while (this.buf.length > 0) {
+            if (this.inside) {
+                // Look for closing tag
+                const closeIdx = this.buf.indexOf('</think>');
+                if (closeIdx !== -1) {
+                    this.inside = false;
+                    this.buf = this.buf.slice(closeIdx + 8);
+                } else {
+                    // Might be a partial `</think>` at end — keep last 8 chars
+                    if (this.buf.length > 8) {
+                        this.buf = this.buf.slice(-8);
+                    }
+                    break;
+                }
+            } else {
+                // Look for opening tag
+                const openIdx = this.buf.indexOf('<think>');
+                if (openIdx !== -1) {
+                    out += this.buf.slice(0, openIdx);
+                    this.inside = true;
+                    this.buf = this.buf.slice(openIdx + 7);
+                    continue;
+                }
+
+                // Handle bare `</think>` without matching `<think>`.
+                // LM Studio often strips the opening tag; the model starts
+                // inside a think block and only `</think>` appears in content.
+                const bareClose = this.buf.indexOf('</think>');
+                if (bareClose !== -1) {
+                    // Everything before the bare close tag was thinking — discard
+                    // unless we've already emitted real output.
+                    if (this.seenAnyOutput) {
+                        out += this.buf.slice(0, bareClose);
+                    }
+                    // Skip the tag itself
+                    this.buf = this.buf.slice(bareClose + 8);
+                    continue;
+                }
+
+                // No tags found — emit safe portion (hold back potential partial tags)
+                const maxPartial = 8; // max length of `</think>`
+                const safe = this.buf.length > maxPartial ? this.buf.length - maxPartial : 0;
+                out += this.buf.slice(0, safe);
+                this.buf = this.buf.slice(safe);
+                break;
+            }
+        }
+
+        if (out.trim()) this.seenAnyOutput = true;
+        return out;
+    }
+
+    /** Flush any remaining buffered text (call at stream end). */
+    flush(): string {
+        // Strip any remaining `</think>` in the buffer
+        let remaining = this.inside ? '' : this.buf;
+        remaining = remaining.replace(/<\/?think>/g, '');
+        this.buf = '';
+        this.inside = false;
+        return remaining;
+    }
+}
+
+/**
+ * Detects when a local model is stuck in a repetition loop.
+ * Watches for the same text block repeating and signals to stop.
+ */
+class RepetitionDetector {
+    private window = '';
+    private readonly windowSize = 600;  // chars to keep for comparison
+    private readonly minRepeat = 80;    // min repeated block size to trigger
+
+    /** Feed text, returns true if repetition loop detected. */
+    feed(text: string): boolean {
+        this.window += text;
+        if (this.window.length > this.windowSize * 2) {
+            this.window = this.window.slice(-this.windowSize);
+        }
+
+        if (this.window.length < this.minRepeat * 2) return false;
+
+        // Check if the last N chars repeat earlier in the window
+        const tail = this.window.slice(-this.minRepeat);
+        const earlier = this.window.slice(0, -this.minRepeat);
+        return earlier.includes(tail);
+    }
+}
+
 export interface OpenAIProviderConfig {
     apiKey: string;
     baseUrl: string;
@@ -71,7 +179,9 @@ export class OpenAIProvider implements LLMProvider {
             // Ollama / LM Studio: use standard max_tokens, no stream_options
             if (maxTokens) body.max_tokens = maxTokens;
         } else {
-            // OpenAI: use stream_options for usage tracking + max_completion_tokens
+            // OpenAI / Azure OpenAI / any cloud: use max_completion_tokens only.
+            // Newer models (o1, o3, gpt-4.1) reject `max_tokens`.
+            // This covers openai.com, Azure deployments, and any OpenAI-compatible cloud.
             body.stream_options = { include_usage: true };
             if (maxTokens) body.max_completion_tokens = maxTokens;
         }
@@ -126,6 +236,10 @@ export class OpenAIProvider implements LLMProvider {
         const decoder = new TextDecoder();
         let buffer = '';
 
+        // Local model helpers: strip <think> tags and detect repetition loops
+        const thinkFilter = this.config.isLocal ? new ThinkTagFilter() : null;
+        const repDetector = this.config.isLocal ? new RepetitionDetector() : null;
+
         try {
             while (true) {
                 const { done, value } = await reader.read();
@@ -161,7 +275,25 @@ export class OpenAIProvider implements LLMProvider {
 
                         // Text content
                         if (delta.content) {
-                            yield { type: 'text', text: delta.content };
+                            let text = delta.content;
+
+                            // Strip <think>...</think> blocks for local models
+                            if (thinkFilter) {
+                                text = thinkFilter.feed(text);
+                            }
+
+                            // Detect repetition loops in local models
+                            if (repDetector && repDetector.feed(delta.content)) {
+                                // Abort the reader — model is stuck
+                                reader.cancel().catch(() => {});
+                                yield { type: 'text', text: '\n\n[Stopped: repetitive output detected]' };
+                                yield { type: 'done' };
+                                return;
+                            }
+
+                            if (text) {
+                                yield { type: 'text', text };
+                            }
                         }
 
                         // Tool calls
@@ -206,6 +338,14 @@ export class OpenAIProvider implements LLMProvider {
             reader.releaseLock();
         }
 
+        // Flush any remaining text from the think tag filter
+        if (thinkFilter) {
+            const remaining = thinkFilter.flush();
+            if (remaining) {
+                yield { type: 'text', text: remaining };
+            }
+        }
+
         // Fallback for local models that don't send usage chunks:
         // ensure tool calls and done are always emitted
         if (!doneEmitted) {
@@ -233,7 +373,10 @@ export class OpenAIProvider implements LLMProvider {
 
                 const result: Record<string, unknown> = {
                     role: 'assistant',
-                    content: textParts.map((t) => t.text).join('') || null,
+                    // OpenAI accepts null here, but LM Studio's Jinja templates
+                    // crash on null with "Cannot apply filter string to NullValue".
+                    // Use empty string for local models.
+                    content: textParts.map((t) => t.text).join('') || (this.config.isLocal ? '' : null),
                 };
 
                 if (toolCallParts.length > 0) {
@@ -258,7 +401,7 @@ export class OpenAIProvider implements LLMProvider {
                 return toolResults.map((tr) => ({
                     role: 'tool',
                     tool_call_id: tr.toolCallId,
-                    content: tr.content,
+                    content: tr.content || '',
                 }));
             }
 
