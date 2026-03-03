@@ -5,6 +5,7 @@
 import { readFileSync, existsSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
+import { execSync } from 'child_process';
 
 // ────────────────── Validation ──────────────────
 
@@ -95,6 +96,42 @@ export class SkillRegistry {
 // ────────────────── Reading (on demand) ──────────────────
 
 /**
+ * Helper to dynamically execute !`command` and @import directives in skill content.
+ */
+function processSkillContent(content: string, baseDir: string, visited: Set<string>): string {
+    // 1. Process !`command` execution
+    let processed = content.replace(/!`([^`]+)`/g, (match, cmd) => {
+        try {
+            // Execute in the directory of the current file
+            const output = execSync(cmd, { cwd: baseDir, encoding: 'utf-8', stdio: 'pipe' });
+            return output.trim();
+        } catch (e: any) {
+            return `[Error executing command: ${cmd} - ${e.message}]`;
+        }
+    });
+
+    // 2. Process @import directives
+    processed = processed.replace(/@([a-zA-Z0-9_./-]+)/g, (match, importPath) => {
+        const fullPath = join(baseDir, importPath);
+        if (visited.has(fullPath)) return match;
+
+        if (existsSync(fullPath)) {
+            const stat = statSync(fullPath);
+            if (stat.isFile()) {
+                visited.add(fullPath);
+                const fileContent = readFileSync(fullPath, 'utf-8');
+                // Process imports recursively
+                const nestedProcessed = processSkillContent(fileContent, dirname(fullPath), visited);
+                return `${match}\n\n--- Imported from ${importPath} ---\n${nestedProcessed}\n--- End import ---`;
+            }
+        }
+        return match;
+    });
+
+    return processed;
+}
+
+/**
  * Read a skill's full SKILL.md body from the filesystem.
  * Called at execution time, not at startup.
  */
@@ -104,7 +141,7 @@ export function readSkillBody(skill: Skill): string {
     }
     const content = readFileSync(skill.path, 'utf-8');
     const { body } = parseFrontmatter(content);
-    return body;
+    return processSkillContent(body, skill.dir, new Set([skill.path]));
 }
 
 /**
@@ -132,7 +169,8 @@ export function readSkillFile(skill: Skill, relativePath: string): string {
     if (stat.size > 5 * 1024 * 1024) {
         return `Error: File "${relativePath}" is too large (${(stat.size / 1024 / 1024).toFixed(1)}MB, max 5MB)`;
     }
-    return readFileSync(resolved, 'utf-8');
+    const rawContent = readFileSync(resolved, 'utf-8');
+    return processSkillContent(rawContent, dirname(resolved), new Set([resolved]));
 }
 
 /** List files in a skill directory (non-recursive, one level deep) */
