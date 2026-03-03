@@ -10,10 +10,33 @@ permissions:
   contents: write
 
 jobs:
-  build_and_publish:
-    name: Build binaries
-    runs-on: ubuntu-latest
-    
+  build_binaries:
+    name: Build binaries for ${{ matrix.os }} (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: macos
+            runner: macos-latest
+            target: darwin-x64
+            bun-target: bun-darwin-x64
+            artifact-name: deepa-darwin-x64
+          - os: macos-arm
+            runner: macos-14
+            target: darwin-arm64
+            bun-target: bun-darwin-aarch64
+            artifact-name: deepa-darwin-arm64
+          - os: linux
+            runner: ubuntu-latest
+            target: linux-x64
+            bun-target: bun-linux-x64
+            artifact-name: deepa-linux-x64
+          - os: windows
+            runner: windows-latest
+            target: win-x64
+            bun-target: bun-windows-x64
+            artifact-name: deepa-win-x64.exe
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,26 +46,47 @@ jobs:
         with:
           node-version: 22
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Build standalone binaries
-        run: |
-          npm run build
-          # Use npx pkg to bundle the application
-          npx pkg . --targets node18-macos-x64,node18-macos-arm64,node18-linux-x64,node18-linux-arm64,node18-win-x64 --out-path bin
+      - name: Build TypeScript
+        run: npm run build
+        
+      - name: Create bin directory
+        run: mkdir bin
+        shell: bash
 
-      - name: Rename Windows binary
+      - name: Build standalone binary with Bun
         run: |
-          mv bin/deepa-cli-win-x64.exe bin/deepa-win-x64.exe || true
+          bun build ./dist/index.js --compile --target=${{ matrix.bun-target }} --outfile bin/${{ matrix.artifact-name }}
+        shell: bash
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: bin/${{ matrix.artifact-name }}
+
+  release:
+    name: Create Release
+    needs: build_binaries
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: bin
+          merge-multiple: true
 
       - name: Create Release and Upload Assets
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            bin/deepa-cli-macos-x64
-            bin/deepa-cli-macos-arm64
-            bin/deepa-cli-linux-x64
-            bin/deepa-cli-linux-arm64
+            bin/deepa-darwin-x64
+            bin/deepa-darwin-arm64
+            bin/deepa-linux-x64
             bin/deepa-win-x64.exe

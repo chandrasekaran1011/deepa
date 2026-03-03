@@ -14,11 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "build:bin": "npm run build && npx pkg . --targets node18-macos-x64,node18-macos-arm64,node18-linux-x64,node18-linux-arm64,node18-win-x64 --out-path bin"
-  },
-  "pkg": {
-    "scripts": "dist/**/*.js",
-    "assets": "package.json"
+    "build:bin": "npm run build && bun build ./dist/index.js --compile --outfile bin/deepa"
   },
   "keywords": [
     "cli",
