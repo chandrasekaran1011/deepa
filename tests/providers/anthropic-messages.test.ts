@@ -99,11 +99,11 @@ describe('Anthropic Provider', () => {
     });
 
     describe('API version header', () => {
-        it('sends the 2024-10-22 API version header', async () => {
+        it('sends the 2023-06-01 API version header', async () => {
             fetchMock.mockResolvedValueOnce(makeAnthropicSSE(makeTextEvents('ok')));
             await collectChunks(makeProvider(), [{ role: 'user', content: 'hi' }]);
             const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
-            expect(headers['anthropic-version']).toBe('2024-10-22');
+            expect(headers['anthropic-version']).toBe('2023-06-01');
         });
     });
 

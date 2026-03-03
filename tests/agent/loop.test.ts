@@ -114,7 +114,7 @@ describe('Agent Loop', () => {
             ]);
             const messages = await runAgentLoop('hello world', [], makeOptions(provider));
             const userMsg = messages.find((m) => m.role === 'user');
-            expect(userMsg?.content).toBe('hello world');
+            expect(userMsg?.content).toBe('<user_input>\nhello world\n</user_input>');
         });
 
         it('preserves prior conversation history', async () => {

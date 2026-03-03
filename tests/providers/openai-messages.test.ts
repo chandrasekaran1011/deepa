@@ -41,6 +41,10 @@ function makeOpenAITextSSE(text: string): string[] {
         })}`,
         `data: ${JSON.stringify({
             choices: [{ delta: {}, finish_reason: 'stop' }],
+        })}`,
+        // Usage-only chunk (sent when stream_options.include_usage is true)
+        `data: ${JSON.stringify({
+            choices: [],
             usage: { prompt_tokens: 10, completion_tokens: 5 },
         })}`,
         'data: [DONE]',
