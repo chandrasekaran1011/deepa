@@ -25,6 +25,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
                 baseUrl: config.baseUrl || 'https://api.openai.com/v1',
                 model: config.model || 'gpt-4o',
                 maxTokens: config.maxTokens || 16384,
+                useMaxCompletionTokens: config.useMaxCompletionTokens,
             });
 
         case 'local':
@@ -34,6 +35,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
                 baseUrl: config.baseUrl || 'http://localhost:1234/v1',
                 model: config.model || 'local-model',
                 maxTokens: config.maxTokens, // Do not default for local; let Llama.cpp handle context natively
+                useMaxCompletionTokens: config.useMaxCompletionTokens,
                 isLocal: true,
             });
     }

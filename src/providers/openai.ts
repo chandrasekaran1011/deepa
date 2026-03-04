@@ -148,6 +148,7 @@ export interface OpenAIProviderConfig {
     baseUrl: string;
     model: string;
     maxTokens?: number;
+    useMaxCompletionTokens?: boolean;
     isLocal?: boolean;  // auto-detected: true for ollama/lmstudio/custom
 }
 
@@ -177,13 +178,13 @@ export class OpenAIProvider implements LLMProvider {
 
         const isStrictOpenAI = this.config.baseUrl.includes('api.openai.com');
 
-        if (this.config.isLocal || !isStrictOpenAI) {
-            // Ollama / LM Studio / Azure OpenAI / Custom endpoints: use standard max_tokens
-            if (maxTokens) body.max_tokens = maxTokens;
-        } else {
-            // Strict openai.com (o1, o3, gpt-4.5) reject `max_tokens` and require `max_completion_tokens`.
+        if (this.config.useMaxCompletionTokens || (!this.config.isLocal && isStrictOpenAI)) {
+            // Force max_completion_tokens, OR it's a strict openai.com endpoint that requires it
             body.stream_options = { include_usage: true };
             if (maxTokens) body.max_completion_tokens = maxTokens;
+        } else {
+            // Standard Custom/Local/Azure fallback
+            if (maxTokens) body.max_tokens = maxTokens;
         }
 
         if (options?.temperature !== undefined) body.temperature = options.temperature;
