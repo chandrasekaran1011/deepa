@@ -201,9 +201,23 @@ export class OpenAIProvider implements LLMProvider {
             }));
         }
 
+        let endpointUrl = `${this.config.baseUrl}/chat/completions`;
+        try {
+            const urlObj = new URL(this.config.baseUrl);
+            if (urlObj.search) {
+                const searchParams = urlObj.search;
+                urlObj.search = '';
+                urlObj.pathname = urlObj.pathname.replace(/\/$/, '') + '/chat/completions';
+                urlObj.search = searchParams;
+                endpointUrl = urlObj.toString();
+            }
+        } catch {
+            // Ignored, fallback to naive append
+        }
+
         let response: Response;
         try {
-            response = await fetchWithRetry(`${this.config.baseUrl}/chat/completions`, {
+            response = await fetchWithRetry(endpointUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
