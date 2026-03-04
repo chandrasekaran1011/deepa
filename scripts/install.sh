@@ -29,29 +29,74 @@ BINARY_NAME="deepa-${PLATFORM}-${TARGET_ARCH}"
 DOWNLOAD_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest/download/${BINARY_NAME}"
 
 INSTALL_DIR="${HOME}/.local/bin"
-EXECUTABLE_PATH="${INSTALL_DIR}/deepa"
+DEEPA_HOME="${HOME}/.deepa"
+REAL_BINARY="${INSTALL_DIR}/deepa-bin"
+WRAPPER="${INSTALL_DIR}/deepa"
+CA_BUNDLE="${DEEPA_HOME}/ca-bundle.pem"
 
 echo "Detected OS: ${PLATFORM}, Architecture: ${TARGET_ARCH}"
 echo "Downloading Deepa from ${DOWNLOAD_URL}..."
 
-# Create install directory if it doesn't exist
+# Create directories
 mkdir -p "${INSTALL_DIR}"
+mkdir -p "${DEEPA_HOME}"
 
-# Download the executable
+# Download the real binary as deepa-bin
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "${DOWNLOAD_URL}" -o "${EXECUTABLE_PATH}"
+    curl -fsSL "${DOWNLOAD_URL}" -o "${REAL_BINARY}"
 elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${EXECUTABLE_PATH}" "${DOWNLOAD_URL}"
+    wget -qO "${REAL_BINARY}" "${DOWNLOAD_URL}"
 else
     echo "Error: Neither curl nor wget is installed."
     exit 1
 fi
 
-# Make it executable
-chmod +x "${EXECUTABLE_PATH}"
+chmod +x "${REAL_BINARY}"
+
+# ── Export system CA certificates ──────────────────────────────────────────
+echo "Exporting system CA certificates for corporate network support..."
+
+if [ "${PLATFORM}" = "darwin" ]; then
+    # macOS: export from both System and SystemRoots keychains
+    security find-certificate -a -p \
+        /Library/Keychains/System.keychain \
+        /System/Library/Keychains/SystemRootCertificates.keychain \
+        > "${CA_BUNDLE}" 2>/dev/null || true
+else
+    # Linux: copy from standard system CA bundle locations
+    for f in \
+        /etc/ssl/certs/ca-certificates.crt \
+        /etc/pki/tls/certs/ca-bundle.crt \
+        /etc/ssl/ca-bundle.pem \
+        /usr/local/share/ca-certificates; do
+        if [ -f "${f}" ]; then
+            cp "${f}" "${CA_BUNDLE}"
+            break
+        fi
+    done
+fi
+
+if [ -s "${CA_BUNDLE}" ]; then
+    echo "  ✓ CA bundle written to ${CA_BUNDLE}"
+else
+    echo "  ⚠ Could not export system CAs — ${CA_BUNDLE} is empty or missing."
+    echo "    If you see SSL errors, run: export NODE_EXTRA_CA_CERTS=/path/to/your-ca.pem"
+fi
+
+# ── Write the wrapper script ────────────────────────────────────────────────
+cat > "${WRAPPER}" << 'WRAPPER_EOF'
+#!/bin/sh
+# Deepa CLI wrapper — sets NODE_EXTRA_CA_CERTS so Node.js trusts corporate CAs
+if [ -s "${HOME}/.deepa/ca-bundle.pem" ]; then
+    export NODE_EXTRA_CA_CERTS="${HOME}/.deepa/ca-bundle.pem"
+fi
+exec "${HOME}/.local/bin/deepa-bin" "$@"
+WRAPPER_EOF
+
+chmod +x "${WRAPPER}"
 
 echo ""
-echo "Successfully installed Deepa to ${EXECUTABLE_PATH}"
+echo "Successfully installed Deepa to ${WRAPPER}"
 
 # Check if INSTALL_DIR is in PATH
 if echo "$PATH" | grep -q "${INSTALL_DIR}"; then
