@@ -15,7 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "build:bin": "npm run build && bun build ./dist/index.js --compile --outfile bin/deepa"
+    "build:bin": "npm run build && node -e \"const fs=require('fs'); const v=require('./package.json').version; const f='./dist/index.js'; fs.writeFileSync(f, fs.readFileSync(f,'utf8').replace(/const CLI_VERSION = '[^']+';/, \\`const CLI_VERSION = '\\${v}';\\`))\" && bun build ./dist/index.js --compile --outfile bin/deepa"
   },
   "keywords": [
     "cli",

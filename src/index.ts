@@ -80,19 +80,13 @@ process.on('SIGTERM', () => {
 
 const program = new Command();
 
-import { readFileSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const pkgPath = join(__dirname, '..', 'package.json');
-const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+// Version will be injected during the build process. Fallback to package version if running dev.
+const CLI_VERSION = '0.1.9';
 
 program
     .name('deepa')
     .description('Agentic assistant for the terminal — think, plan, execute')
-    .version(pkg.version)
+    .version(CLI_VERSION)
     .option('-p, --provider <type>', 'LLM provider (openai, anthropic, ollama, lmstudio, custom)')
     .option('-m, --model <name>', 'Model name')
     .option('-b, --base-url <url>', 'API base URL')
