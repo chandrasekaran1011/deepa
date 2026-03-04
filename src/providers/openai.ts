@@ -207,7 +207,10 @@ export class OpenAIProvider implements LLMProvider {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
+                    ...(this.config.apiKey ? {
+                        Authorization: `Bearer ${this.config.apiKey}`,
+                        'api-key': this.config.apiKey
+                    } : {}),
                 },
                 body: JSON.stringify(body),
                 signal,
@@ -285,7 +288,7 @@ export class OpenAIProvider implements LLMProvider {
                             // Detect repetition loops in local models
                             if (repDetector && repDetector.feed(delta.content)) {
                                 // Abort the reader — model is stuck
-                                reader.cancel().catch(() => {});
+                                reader.cancel().catch(() => { });
                                 yield { type: 'text', text: '\n\n[Stopped: repetitive output detected]' };
                                 yield { type: 'done' };
                                 return;
