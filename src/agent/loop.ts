@@ -206,8 +206,8 @@ export async function runAgentLoop(
                         break;
 
                     case 'error':
-                        process.stderr.write(chalk.red(`\nLLM Error: ${chunk.error} \n`));
-                        return messages.slice(1); // Remove system prompt
+                        process.stderr.write(chalk.red(`\nLLM Error: ${chunk.error}\n`));
+                        throw new Error(chunk.error);
 
                     case 'done':
                         if (chunk.usage) {
@@ -235,13 +235,10 @@ export async function runAgentLoop(
             }
 
             const msg = err instanceof Error ? err.message : String(err);
-            process.stderr.write(chalk.red(`\nLLM Stream Error: ${msg} \n`));
+            process.stderr.write(chalk.red(`\nLLM Stream Error: ${msg}\n`));
 
-            // If we already received some text or tool calls, we can proceed to save them.
-            // Otherwise, we abort this turn.
-            if (!fullText && pendingToolCalls.length === 0) {
-                return messages.slice(1);
-            }
+            // Re-throw so callers (e.g. UI server) can catch and display the error
+            throw err;
         }
 
         // If no tool calls, we're done — assistant responded with text
