@@ -311,6 +311,12 @@ async function addModelInteractive(): Promise<void> {
     const maxTokensStr = await promptUser('  Max tokens [16384]: ');
     const maxTokens = maxTokensStr ? parseInt(maxTokensStr) : 16384;
 
+    let useMaxCompletionTokens = false;
+    if (provider === 'custom' || provider === 'openai') {
+        const useOldStr = await promptUser('  Use `max_completion_tokens` instead of `max_tokens`? (y/n) [n]: ');
+        useMaxCompletionTokens = useOldStr?.toLowerCase().startsWith('y') || false;
+    }
+
     const makeDefault = await promptUser('  Set as default? (y/n) [y]: ');
     const isDefault = !makeDefault || makeDefault.toLowerCase().startsWith('y');
 
@@ -321,6 +327,7 @@ async function addModelInteractive(): Promise<void> {
         baseUrl,
         apiKey: apiKey || undefined,
         maxTokens,
+        useMaxCompletionTokens,
         isDefault,
     });
 

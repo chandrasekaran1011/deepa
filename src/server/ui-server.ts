@@ -260,6 +260,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                 model: m.model,
                 baseUrl: m.baseUrl,
                 maxTokens: m.maxTokens,
+                useMaxCompletionTokens: m.useMaxCompletionTokens,
                 apiKeyMasked: (m as any).apiKeyMasked,
                 isDefault: m.isDefault,
             })),
@@ -269,7 +270,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
 
     app.post('/api/models', (req, res) => {
         try {
-            const { name, provider: prov, model: mod, baseUrl, apiKey, maxTokens, isDefault } = req.body;
+            const { name, provider: prov, model: mod, baseUrl, apiKey, maxTokens, useMaxCompletionTokens, isDefault } = req.body;
             if (!name || !prov || !mod || !baseUrl) {
                 return res.status(400).json({ error: 'name, provider, model, and baseUrl are required' });
             }
@@ -280,6 +281,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                 baseUrl,
                 apiKey: apiKey || undefined,
                 maxTokens: maxTokens || 16384,
+                useMaxCompletionTokens: !!useMaxCompletionTokens,
                 isDefault: !!isDefault,
             });
             res.json({ status: 'ok' });

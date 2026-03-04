@@ -50,6 +50,7 @@ function storedModelToProvider(model: StoredModel): ProviderConfig {
         baseUrl: model.baseUrl,
         model: model.model,
         maxTokens: model.maxTokens,
+        useMaxCompletionTokens: model.useMaxCompletionTokens,
     };
 }
 

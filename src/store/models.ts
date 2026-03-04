@@ -20,6 +20,7 @@ export interface StoredModel {
     baseUrl: string;        // API endpoint
     apiKey?: string;        // encrypted at rest
     maxTokens: number;
+    useMaxCompletionTokens?: boolean; // If true, forces max_completion_tokens over max_tokens
     isDefault?: boolean;
 }
 

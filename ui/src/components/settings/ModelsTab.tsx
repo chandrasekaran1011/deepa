@@ -35,6 +35,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
     const [baseUrl, setBaseUrl] = useState('');
     const [apiKey, setApiKey] = useState('');
     const [maxTokens, setMaxTokens] = useState(16384);
+    const [useMaxCompletionTokens, setUseMaxCompletionTokens] = useState(false);
     const [isDefault, setIsDefault] = useState(false);
 
     useEffect(() => {
@@ -80,6 +81,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
         setBaseUrl('');
         setApiKey('');
         setMaxTokens(16384);
+        setUseMaxCompletionTokens(false);
         setIsDefault(false);
         setError(null);
     };
@@ -95,7 +97,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
             const res = await fetch('/api/models', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: name.trim(), provider, model: model.trim(), baseUrl: baseUrl.trim(), apiKey: apiKey || undefined, maxTokens, isDefault }),
+                body: JSON.stringify({ name: name.trim(), provider, model: model.trim(), baseUrl: baseUrl.trim(), apiKey: apiKey || undefined, maxTokens, useMaxCompletionTokens, isDefault }),
             });
             if (res.ok) {
                 resetForm();
@@ -218,6 +220,17 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
                             className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] focus:outline-none focus:border-[var(--accent)]/50"
                         />
                     </div>
+                    {(provider === 'openai' || provider === 'custom') && (
+                        <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={useMaxCompletionTokens}
+                                onChange={(e) => setUseMaxCompletionTokens(e.target.checked)}
+                                className="accent-[var(--accent)]"
+                            />
+                            Use `max_completion_tokens` instead of `max_tokens`
+                        </label>
+                    )}
                     <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
                         <input
                             type="checkbox"
