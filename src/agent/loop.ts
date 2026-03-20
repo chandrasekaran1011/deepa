@@ -151,8 +151,13 @@ export async function runAgentLoop(
         let fullText = '';
         const pendingToolCalls: Array<{ id: string; name: string; arguments: string; parsedArgs: Record<string, unknown>; parseError?: string }> = [];
 
+        const chatOptions = {
+            reasoningEffort: config.provider.reasoningEffort,
+            thinkingBudget: config.provider.thinkingBudget,
+        };
+
         try {
-            for await (const chunk of provider.chat(messages, toolDefs, undefined, signal)) {
+            for await (const chunk of provider.chat(messages, toolDefs, chatOptions, signal)) {
                 switch (chunk.type) {
                     case 'text':
                         fullText += chunk.text;
