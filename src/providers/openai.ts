@@ -187,6 +187,11 @@ export class OpenAIProvider implements LLMProvider {
             if (maxTokens) body.max_tokens = maxTokens;
         }
 
+        // reasoning_effort for OpenAI o-series models (o1, o3, o4-mini, etc.)
+        if (options?.reasoningEffort && !this.config.isLocal) {
+            body.reasoning_effort = options.reasoningEffort;
+        }
+
         if (options?.temperature !== undefined) body.temperature = options.temperature;
         if (options?.topP !== undefined) body.top_p = options.topP;
         if (options?.stop) body.stop = options.stop;

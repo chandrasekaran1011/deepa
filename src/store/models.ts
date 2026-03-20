@@ -15,12 +15,14 @@ const ALGORITHM = 'aes-256-gcm';
 
 export interface StoredModel {
     name: string;           // user-friendly name, e.g. "gpt4", "claude", "local-llama"
-    provider: 'openai' | 'anthropic' | 'ollama' | 'lmstudio' | 'custom';
+    provider: 'openai' | 'anthropic' | 'azure' | 'ollama' | 'lmstudio' | 'custom';
     model: string;          // model identifier, e.g. "gpt-4o", "llama3.2"
     baseUrl: string;        // API endpoint
     apiKey?: string;        // encrypted at rest
     maxTokens: number;
     useMaxCompletionTokens?: boolean; // If true, forces max_completion_tokens over max_tokens
+    reasoningEffort?: 'low' | 'medium' | 'high'; // For OpenAI o-series: reasoning_effort param
+    thinkingBudget?: number; // For Anthropic extended thinking: budget_tokens (min 1024)
     isDefault?: boolean;
 }
 
@@ -253,6 +255,11 @@ export const PROVIDER_PRESETS: Record<string, { baseUrl: string; needsKey: boole
         baseUrl: 'http://localhost:1234/v1',
         needsKey: false,
         defaultModel: 'default',
+    },
+    azure: {
+        baseUrl: 'https://{resource}.openai.azure.com/openai/deployments/{deployment}',
+        needsKey: true,
+        defaultModel: 'gpt-4o',
     },
     custom: {
         baseUrl: 'http://localhost:8000/v1',

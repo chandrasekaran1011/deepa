@@ -102,6 +102,8 @@ export interface ProviderConfig {
     maxTokens: number;
     useMaxCompletionTokens?: boolean;
     apiVersion?: string;
+    reasoningEffort?: 'low' | 'medium' | 'high';
+    thinkingBudget?: number;
 }
 
 export interface MCPServerConfig {
