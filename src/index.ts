@@ -87,7 +87,7 @@ program
     .name('deepa')
     .description('Agentic assistant for the terminal — think, plan, execute')
     .version(CLI_VERSION)
-    .option('-p, --provider <type>', 'LLM provider (openai, anthropic, ollama, lmstudio, custom)')
+    .option('-p, --provider <type>', 'LLM provider (openai, anthropic, azure, ollama, lmstudio, custom)')
     .option('-m, --model <name>', 'Model name')
     .option('-b, --base-url <url>', 'API base URL')
     .option('-k, --api-key <key>', 'API key')
@@ -291,14 +291,37 @@ async function addModelInteractive(): Promise<void> {
     const name = await promptUser('  Name (e.g. gpt4, claude, local-llama): ');
     if (!name) { console.log(chalk.dim('  Cancelled.')); return; }
 
-    console.log(chalk.dim('  Providers: openai, anthropic, ollama, lmstudio, custom'));
+    console.log(chalk.dim('  Providers: openai, anthropic, azure, ollama, lmstudio, custom'));
     const provider = await promptUser('  Provider: ') as StoredModel['provider'];
     if (!provider) { console.log(chalk.dim('  Cancelled.')); return; }
 
     const preset = PROVIDER_PRESETS[provider] || PROVIDER_PRESETS.custom;
 
-    const model = await promptUser(`  Model ID [${preset.defaultModel}]: `) || preset.defaultModel;
-    const baseUrl = await promptUser(`  Base URL [${preset.baseUrl}]: `) || preset.baseUrl;
+    let model: string;
+    let baseUrl: string;
+
+    if (provider === 'azure') {
+        // Guided Azure OpenAI setup
+        console.log(chalk.dim('\n  Azure OpenAI setup:'));
+        console.log(chalk.dim('  URL format: https://{resource}.openai.azure.com/openai/deployments/{deployment}'));
+        console.log();
+
+        const resource = await promptUser('  Azure resource name: ');
+        if (!resource) { console.log(chalk.dim('  Cancelled.')); return; }
+
+        const deployment = await promptUser('  Deployment name: ');
+        if (!deployment) { console.log(chalk.dim('  Cancelled.')); return; }
+
+        const apiVersion = await promptUser('  API version [2024-10-21]: ') || '2024-10-21';
+
+        model = deployment; // Azure uses deployment name as model
+        baseUrl = `https://${resource}.openai.azure.com/openai/deployments/${deployment}?api-version=${apiVersion}`;
+
+        console.log(chalk.dim(`\n  Endpoint: ${baseUrl}/chat/completions`));
+    } else {
+        model = await promptUser(`  Model ID [${preset.defaultModel}]: `) || preset.defaultModel;
+        baseUrl = await promptUser(`  Base URL [${preset.baseUrl}]: `) || preset.baseUrl;
+    }
 
     let apiKey: string | undefined;
     if (preset.needsKey) {
@@ -312,9 +335,39 @@ async function addModelInteractive(): Promise<void> {
     const maxTokens = maxTokensStr ? parseInt(maxTokensStr) : 16384;
 
     let useMaxCompletionTokens = false;
-    if (provider === 'custom' || provider === 'openai') {
+    if (provider === 'azure') {
+        // Azure always uses max_completion_tokens
+        useMaxCompletionTokens = true;
+    } else if (provider === 'custom' || provider === 'openai') {
         const useOldStr = await promptUser('  Use `max_completion_tokens` instead of `max_tokens`? (y/n) [n]: ');
         useMaxCompletionTokens = useOldStr?.toLowerCase().startsWith('y') || false;
+    }
+
+    // Reasoning level for OpenAI o-series or Azure o-series models
+    let reasoningEffort: StoredModel['reasoningEffort'] | undefined;
+    if (provider === 'openai' || provider === 'azure') {
+        const isOSeries = /\bo[1-9](-|\b)/.test(model) || model.includes('o4') || model.includes('o3');
+        if (isOSeries) {
+            console.log(chalk.dim('  This looks like an o-series reasoning model.'));
+            const effortStr = await promptUser('  Reasoning effort (low/medium/high) [medium]: ') || 'medium';
+            if (['low', 'medium', 'high'].includes(effortStr)) {
+                reasoningEffort = effortStr as StoredModel['reasoningEffort'];
+            }
+        }
+    }
+
+    // Extended thinking budget for Anthropic claude-opus-4 / claude-sonnet-4 models
+    let thinkingBudget: number | undefined;
+    if (provider === 'anthropic') {
+        const supportsThinking = model.includes('claude-opus-4') || model.includes('claude-sonnet-4');
+        if (supportsThinking) {
+            console.log(chalk.dim('  This model supports extended thinking (min 1024 tokens).'));
+            const budgetStr = await promptUser('  Extended thinking budget_tokens (0 = disabled) [0]: ') || '0';
+            const budget = parseInt(budgetStr);
+            if (!isNaN(budget) && budget >= 1024) {
+                thinkingBudget = budget;
+            }
+        }
     }
 
     const makeDefault = await promptUser('  Set as default? (y/n) [y]: ');
@@ -328,6 +381,8 @@ async function addModelInteractive(): Promise<void> {
         apiKey: apiKey || undefined,
         maxTokens,
         useMaxCompletionTokens,
+        reasoningEffort,
+        thinkingBudget,
         isDefault,
     });
 
