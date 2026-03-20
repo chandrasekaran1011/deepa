@@ -7,6 +7,8 @@ export interface ChatOptions {
     temperature?: number;
     topP?: number;
     stop?: string[];
+    reasoningEffort?: 'low' | 'medium' | 'high'; // OpenAI o-series reasoning_effort
+    thinkingBudget?: number; // Anthropic extended thinking budget_tokens (min 1024)
 }
 
 export interface LLMProvider {

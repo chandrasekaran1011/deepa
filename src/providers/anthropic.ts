@@ -42,6 +42,7 @@ export interface AnthropicProviderConfig {
     model: string;
     maxTokens: number;
     apiVersion?: string;
+    thinkingBudget?: number;
 }
 
 export class AnthropicProvider implements LLMProvider {
@@ -71,6 +72,9 @@ export class AnthropicProvider implements LLMProvider {
             return true;
         });
 
+        const thinkingBudget = options?.thinkingBudget ?? this.config.thinkingBudget;
+        const useThinking = !!thinkingBudget && thinkingBudget >= 1024;
+
         const body: Record<string, unknown> = {
             model: this.config.model,
             messages: this.convertMessages(conversationMessages),
@@ -78,9 +82,15 @@ export class AnthropicProvider implements LLMProvider {
             stream: true,
         };
 
+        if (useThinking) {
+            body.thinking = { type: 'enabled', budget_tokens: thinkingBudget };
+            // temperature must be 1 when extended thinking is enabled
+        } else {
+            if (options?.temperature !== undefined) body.temperature = options.temperature;
+            if (options?.topP !== undefined) body.top_p = options.topP;
+        }
+
         if (systemPrompt) body.system = systemPrompt;
-        if (options?.temperature !== undefined) body.temperature = options.temperature;
-        if (options?.topP !== undefined) body.top_p = options.topP;
         if (options?.stop) body.stop_sequences = options.stop;
 
         if (tools && tools.length > 0) {
@@ -93,13 +103,17 @@ export class AnthropicProvider implements LLMProvider {
 
         let response: Response;
         try {
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+                'x-api-key': this.config.apiKey,
+                'anthropic-version': this.config.apiVersion || ANTHROPIC_API_VERSION,
+            };
+            if (useThinking) {
+                headers['anthropic-beta'] = 'interleaved-thinking-2025-05-14';
+            }
             response = await fetchWithRetry(`${this.config.baseUrl}/v1/messages`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': this.config.apiKey,
-                    'anthropic-version': this.config.apiVersion || ANTHROPIC_API_VERSION,
-                },
+                headers,
                 body: JSON.stringify(body),
                 signal,
             });
@@ -126,6 +140,7 @@ export class AnthropicProvider implements LLMProvider {
         let currentToolId = '';
         let currentToolName = '';
         let currentToolArgs = '';
+        let currentBlockType = ''; // 'text' | 'tool_use' | 'thinking'
         let inputTokens = 0;
         let outputTokens = 0;
 
@@ -155,6 +170,7 @@ export class AnthropicProvider implements LLMProvider {
 
                             case 'content_block_start': {
                                 const block = data.content_block;
+                                currentBlockType = block?.type || '';
                                 if (block?.type === 'tool_use') {
                                     currentToolId = block.id;
                                     currentToolName = block.name;
@@ -165,8 +181,13 @@ export class AnthropicProvider implements LLMProvider {
 
                             case 'content_block_delta': {
                                 const delta = data.delta;
-                                if (delta?.type === 'text_delta') {
+                                if (delta?.type === 'text_delta' && currentBlockType === 'text') {
                                     yield { type: 'text', text: delta.text };
+                                } else if (delta?.type === 'thinking_delta' && currentBlockType === 'thinking') {
+                                    // Emit thinking text prefixed so the UI can render it distinctly
+                                    if (delta.thinking) {
+                                        yield { type: 'text', text: delta.thinking };
+                                    }
                                 } else if (delta?.type === 'input_json_delta') {
                                     currentToolArgs += delta.partial_json;
                                 }
@@ -174,7 +195,7 @@ export class AnthropicProvider implements LLMProvider {
                             }
 
                             case 'content_block_stop': {
-                                if (currentToolId) {
+                                if (currentBlockType === 'tool_use' && currentToolId) {
                                     yield {
                                         type: 'tool_call',
                                         id: currentToolId,
@@ -185,6 +206,7 @@ export class AnthropicProvider implements LLMProvider {
                                     currentToolName = '';
                                     currentToolArgs = '';
                                 }
+                                currentBlockType = '';
                                 break;
                             }
 

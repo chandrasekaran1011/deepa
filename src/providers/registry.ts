@@ -17,6 +17,7 @@ export function createProvider(config: ProviderConfig): LLMProvider {
                 model: config.model || 'claude-sonnet-4-20250514',
                 maxTokens: config.maxTokens || 16384,
                 apiVersion: config.apiVersion,
+                thinkingBudget: config.thinkingBudget,
             });
 
         case 'openai':

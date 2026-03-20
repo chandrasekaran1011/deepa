@@ -13,7 +13,7 @@ import type { DeepaConfig, ProviderConfig, AutonomyLevel, AgentMode, MCPServerCo
 
 const ProjectConfigSchema = z.object({
     provider: z.object({
-        type: z.enum(['openai', 'anthropic', 'ollama', 'lmstudio', 'custom']).optional(),
+        type: z.enum(['openai', 'anthropic', 'azure', 'ollama', 'lmstudio', 'custom']).optional(),
         model: z.string().optional(),
         baseUrl: z.string().optional(),
         maxTokens: z.number().optional(),
@@ -36,10 +36,13 @@ function loadProjectConfig(cwd: string): Record<string, unknown> {
 }
 
 function storedModelToProvider(model: StoredModel): ProviderConfig {
-    // Map provider types: ollama and lmstudio use OpenAI-compatible endpoints
+    // Map provider types to internal provider types
     let type: ProviderConfig['type'];
     if (model.provider === 'ollama' || model.provider === 'lmstudio' || model.provider === 'custom') {
         type = 'local';
+    } else if (model.provider === 'azure') {
+        // Azure OpenAI uses the same OpenAI provider with max_completion_tokens
+        type = 'openai';
     } else {
         type = model.provider as 'openai' | 'anthropic';
     }
@@ -50,7 +53,10 @@ function storedModelToProvider(model: StoredModel): ProviderConfig {
         baseUrl: model.baseUrl,
         model: model.model,
         maxTokens: model.maxTokens,
-        useMaxCompletionTokens: model.useMaxCompletionTokens,
+        // Azure always needs max_completion_tokens
+        useMaxCompletionTokens: model.useMaxCompletionTokens || model.provider === 'azure',
+        reasoningEffort: model.reasoningEffort,
+        thinkingBudget: model.thinkingBudget,
     };
 }
 
@@ -93,7 +99,17 @@ export function loadConfig(cwd: string = process.cwd(), flags: CLIFlags = {}): D
     const projectConfig = loadProjectConfig(cwd);
     const parsed = ProjectConfigSchema.safeParse(projectConfig);
     if (parsed.success && parsed.data.provider) {
-        if (parsed.data.provider.type) providerConfig.type = parsed.data.provider.type === 'ollama' || parsed.data.provider.type === 'lmstudio' || parsed.data.provider.type === 'custom' ? 'local' : parsed.data.provider.type as 'openai' | 'anthropic';
+        if (parsed.data.provider.type) {
+            const pt = parsed.data.provider.type;
+            if (pt === 'ollama' || pt === 'lmstudio' || pt === 'custom') {
+                providerConfig.type = 'local';
+            } else if (pt === 'azure') {
+                providerConfig.type = 'openai';
+                providerConfig.useMaxCompletionTokens = true;
+            } else {
+                providerConfig.type = pt as 'openai' | 'anthropic';
+            }
+        }
         if (parsed.data.provider.model) providerConfig.model = parsed.data.provider.model;
         if (parsed.data.provider.baseUrl) providerConfig.baseUrl = parsed.data.provider.baseUrl;
         if (parsed.data.provider.maxTokens) providerConfig.maxTokens = parsed.data.provider.maxTokens;
@@ -112,6 +128,9 @@ export function loadConfig(cwd: string = process.cwd(), flags: CLIFlags = {}): D
         const p = flags.provider;
         if (p === 'ollama' || p === 'lmstudio' || p === 'custom') {
             providerConfig.type = 'local';
+        } else if (p === 'azure') {
+            providerConfig.type = 'openai';
+            providerConfig.useMaxCompletionTokens = true;
         } else if (p === 'openai' || p === 'anthropic') {
             providerConfig.type = p;
         }
