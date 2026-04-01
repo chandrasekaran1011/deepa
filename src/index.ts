@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // ─── Deepa — Agentic Assistant ───
 
+import os from 'os';
+import path from 'path';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { loadConfig, type CLIFlags } from './config.js';
@@ -283,6 +285,29 @@ program
         console.log();
     });
 
+program
+    .command('reset')
+    .description('Factory reset — delete all sessions, memory, models, and configs from ~/.deepa')
+    .action(async () => {
+        console.log(chalk.yellow('\n  ⚠ This will delete everything in ~/.deepa:'));
+        console.log(chalk.dim('    Sessions, memory, models, MCP configs, tokens, plugins, skills\n'));
+
+        const confirm = await promptUser('  Type "yes" to confirm: ');
+        if (confirm?.toLowerCase() !== 'yes') {
+            console.log(chalk.dim('  Cancelled.\n'));
+            return;
+        }
+
+        const deepaDir = path.join(os.homedir(), '.deepa');
+        const { rmSync, existsSync } = await import('fs');
+        if (existsSync(deepaDir)) {
+            rmSync(deepaDir, { recursive: true, force: true });
+            console.log(chalk.green('\n  ✨ Factory reset complete. All data in ~/.deepa has been deleted.\n'));
+        } else {
+            console.log(chalk.dim('\n  Nothing to reset — ~/.deepa does not exist.\n'));
+        }
+    });
+
 // ────────────────── Interactive Model Add ──────────────────
 
 async function addModelInteractive(): Promise<void> {
@@ -299,23 +324,22 @@ async function addModelInteractive(): Promise<void> {
 
     let model: string;
     let baseUrl: string;
+    let apiKey: string | undefined;
 
     if (provider === 'azure') {
-        // Guided Azure OpenAI setup
         console.log(chalk.dim('\n  Azure OpenAI setup:'));
-        console.log(chalk.dim('  URL format: https://{resource}.openai.azure.com/openai/deployments/{deployment}'));
-        console.log();
 
-        const resource = await promptUser('  Azure resource name: ');
-        if (!resource) { console.log(chalk.dim('  Cancelled.')); return; }
+        const endpoint = await promptUser('  Endpoint URL (e.g. https://my-resource.openai.azure.com): ');
+        if (!endpoint) { console.log(chalk.dim('  Cancelled.')); return; }
 
         const deployment = await promptUser('  Deployment name: ');
         if (!deployment) { console.log(chalk.dim('  Cancelled.')); return; }
 
         const apiVersion = await promptUser('  API version [2024-10-21]: ') || '2024-10-21';
 
-        model = deployment; // Azure uses deployment name as model
-        baseUrl = `https://${resource}.openai.azure.com/openai/deployments/${deployment}?api-version=${apiVersion}`;
+        const cleanEndpoint = endpoint.replace(/\/+$/, '');
+        model = deployment;
+        baseUrl = `${cleanEndpoint}/openai/deployments/${deployment}?api-version=${apiVersion}`;
 
         console.log(chalk.dim(`\n  Endpoint: ${baseUrl}/chat/completions`));
     } else {
@@ -323,8 +347,7 @@ async function addModelInteractive(): Promise<void> {
         baseUrl = await promptUser(`  Base URL [${preset.baseUrl}]: `) || preset.baseUrl;
     }
 
-    let apiKey: string | undefined;
-    if (preset.needsKey) {
+    if (preset.needsKey && !apiKey) {
         apiKey = await promptUser('  API Key: ');
         if (!apiKey) {
             console.log(chalk.yellow('  ⚠ No API key provided. You can add it later.'));
