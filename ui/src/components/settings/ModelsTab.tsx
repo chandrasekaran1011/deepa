@@ -38,6 +38,11 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
     const [useMaxCompletionTokens, setUseMaxCompletionTokens] = useState(false);
     const [isDefault, setIsDefault] = useState(false);
 
+    // Azure-specific fields
+    const [azureEndpoint, setAzureEndpoint] = useState('');
+    const [azureDeployment, setAzureDeployment] = useState('');
+    const [azureApiVersion, setAzureApiVersion] = useState('2024-10-21');
+
     useEffect(() => {
         if (isOpen) {
             fetchModels();
@@ -69,9 +74,26 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
         setProvider(prov);
         const preset = presets[prov];
         if (preset) {
-            setBaseUrl(preset.baseUrl);
-            setModel(preset.defaultModel);
+            if (prov === 'azure') {
+                setBaseUrl('');
+                setModel('');
+                setAzureEndpoint('');
+                setAzureDeployment('');
+                setAzureApiVersion('2024-10-21');
+                setUseMaxCompletionTokens(true);
+            } else {
+                setBaseUrl(preset.baseUrl);
+                setModel(preset.defaultModel);
+                setAzureEndpoint('');
+                setAzureDeployment('');
+            }
         }
+    };
+
+    // Build Azure URL from parts
+    const buildAzureUrl = (endpoint: string, deployment: string, version: string) => {
+        const clean = endpoint.replace(/\/+$/, '');
+        return `${clean}/openai/deployments/${deployment}?api-version=${version}`;
     };
 
     const resetForm = () => {
@@ -83,21 +105,38 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
         setMaxTokens(16384);
         setUseMaxCompletionTokens(false);
         setIsDefault(false);
+        setAzureEndpoint('');
+        setAzureDeployment('');
+        setAzureApiVersion('2024-10-21');
         setError(null);
     };
 
     const handleAdd = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
-        if (!name.trim() || !model.trim() || !baseUrl.trim()) {
+
+        let finalModel = model.trim();
+        let finalBaseUrl = baseUrl.trim();
+        let finalUseMaxCompletionTokens = useMaxCompletionTokens;
+
+        if (provider === 'azure') {
+            if (!name.trim() || !azureEndpoint.trim() || !azureDeployment.trim()) {
+                setError('Name, endpoint, and deployment name are required');
+                return;
+            }
+            finalModel = azureDeployment.trim();
+            finalBaseUrl = buildAzureUrl(azureEndpoint.trim(), azureDeployment.trim(), azureApiVersion);
+            finalUseMaxCompletionTokens = true;
+        } else if (!name.trim() || !finalModel || !finalBaseUrl) {
             setError('Name, model, and base URL are required');
             return;
         }
+
         try {
             const res = await fetch('/api/models', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: name.trim(), provider, model: model.trim(), baseUrl: baseUrl.trim(), apiKey: apiKey || undefined, maxTokens, useMaxCompletionTokens, isDefault }),
+                body: JSON.stringify({ name: name.trim(), provider, model: finalModel, baseUrl: finalBaseUrl, apiKey: apiKey || undefined, maxTokens, useMaxCompletionTokens: finalUseMaxCompletionTokens, isDefault }),
             });
             if (res.ok) {
                 resetForm();
@@ -176,28 +215,67 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
                             <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" />
                         </div>
                     </div>
-                    <div>
-                        <label className="block text-xs text-[var(--text-muted)] mb-1">Model ID</label>
-                        <input
-                            type="text"
-                            value={model}
-                            onChange={(e) => setModel(e.target.value)}
-                            placeholder="e.g., gpt-4o"
-                            className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs text-[var(--text-muted)] mb-1">Base URL</label>
-                        <input
-                            type="url"
-                            value={baseUrl}
-                            onChange={(e) => setBaseUrl(e.target.value)}
-                            placeholder="https://api.openai.com/v1"
-                            className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
-                            required
-                        />
-                    </div>
+                    {provider === 'azure' ? (
+                        <>
+                            <div>
+                                <label className="block text-xs text-[var(--text-muted)] mb-1">Endpoint URL</label>
+                                <input
+                                    type="url"
+                                    value={azureEndpoint}
+                                    onChange={(e) => setAzureEndpoint(e.target.value)}
+                                    placeholder="https://my-resource.openai.azure.com"
+                                    className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-[var(--text-muted)] mb-1">Deployment Name</label>
+                                <input
+                                    type="text"
+                                    value={azureDeployment}
+                                    onChange={(e) => setAzureDeployment(e.target.value)}
+                                    placeholder="e.g., gpt-4o-deployment"
+                                    className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-[var(--text-muted)] mb-1">API Version</label>
+                                <input
+                                    type="text"
+                                    value={azureApiVersion}
+                                    onChange={(e) => setAzureApiVersion(e.target.value)}
+                                    placeholder="2024-10-21"
+                                    className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
+                                />
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div>
+                                <label className="block text-xs text-[var(--text-muted)] mb-1">Model ID</label>
+                                <input
+                                    type="text"
+                                    value={model}
+                                    onChange={(e) => setModel(e.target.value)}
+                                    placeholder="e.g., gpt-4o"
+                                    className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-[var(--text-muted)] mb-1">Base URL</label>
+                                <input
+                                    type="url"
+                                    value={baseUrl}
+                                    onChange={(e) => setBaseUrl(e.target.value)}
+                                    placeholder="https://api.openai.com/v1"
+                                    className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
+                                    required
+                                />
+                            </div>
+                        </>
+                    )}
                     <div>
                         <label className="block text-xs text-[var(--text-muted)] mb-1">
                             API Key {presets[provider] && !presets[provider].needsKey && <span className="text-[var(--text-muted)]">(optional)</span>}
