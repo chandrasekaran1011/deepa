@@ -177,13 +177,14 @@ export class OpenAIProvider implements LLMProvider {
         };
 
         const isStrictOpenAI = this.config.baseUrl.includes('api.openai.com');
+        const isAzure = this.config.baseUrl.includes('.openai.azure.com') || this.config.baseUrl.includes('.cognitiveservices.azure.com');
 
-        if (this.config.useMaxCompletionTokens || (!this.config.isLocal && isStrictOpenAI)) {
+        if (this.config.useMaxCompletionTokens || isAzure || (!this.config.isLocal && isStrictOpenAI)) {
             // Force max_completion_tokens, OR it's a strict openai.com endpoint that requires it
             body.stream_options = { include_usage: true };
             if (maxTokens) body.max_completion_tokens = maxTokens;
         } else {
-            // Standard Custom/Local/Azure fallback
+            // Standard Custom/Local fallback
             if (maxTokens) body.max_tokens = maxTokens;
         }
 
@@ -340,7 +341,11 @@ export class OpenAIProvider implements LLMProvider {
                         }
 
                         // Check for finish
-                        if (data.choices?.[0]?.finish_reason) {
+                        const finishReason = data.choices?.[0]?.finish_reason;
+                        if (finishReason) {
+                            if (finishReason === 'length') {
+                                yield { type: 'text', text: '\n\n[Output truncated — max_completion_tokens reached. Use `deepa model add` to increase max tokens.]' };
+                            }
                             // Emit accumulated tool calls
                             toolCallsEmitted = true;
                             for (const [, tc] of toolCalls) {
