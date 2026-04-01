@@ -82,8 +82,9 @@ process.on('SIGTERM', () => {
 
 const program = new Command();
 
-// Version will be injected during the build process. Fallback to package version if running dev.
-const CLI_VERSION = '0.2.0';
+import { createRequire } from 'module';
+const __require = createRequire(import.meta.url);
+const CLI_VERSION = __require('../package.json').version;
 
 program
     .name('deepa')
