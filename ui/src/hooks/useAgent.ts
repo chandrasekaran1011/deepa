@@ -23,16 +23,27 @@ export interface ToolCall {
     status: 'pending' | 'success' | 'error';
 }
 
+export interface TokenUsage {
+    promptTokens: number;
+    completionTokens: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+}
+
 export function useAgent() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [queueSize, setQueueSize] = useState(0);
     const [sessionId, setSessionId] = useState<string | null>(null);
+    const [tokenUsage, setTokenUsage] = useState<TokenUsage>({ promptTokens: 0, completionTokens: 0, totalPromptTokens: 0, totalCompletionTokens: 0 });
     const [pendingConfirmation, setPendingConfirmation] = useState<{
         description: string;
-        type: 'action' | 'plan';
+        type: 'action' | 'plan' | 'question';
         planItems?: { content: string; status: string }[];
+        question?: string;
+        options?: { label: string; description?: string }[];
+        allowCustom?: boolean;
     } | null>(null);
 
     const eventSourceRef = useRef<EventSource | null>(null);
@@ -161,8 +172,31 @@ export function useAgent() {
                 );
                 break;
 
+            case 'token_usage':
+                setTokenUsage({
+                    promptTokens: data.promptTokens,
+                    completionTokens: data.completionTokens,
+                    totalPromptTokens: data.totalPromptTokens,
+                    totalCompletionTokens: data.totalCompletionTokens,
+                });
+                break;
+
             case 'confirm_request':
-                if (data.description.startsWith('PLAN_APPROVAL\n')) {
+                if (data.description.startsWith('ASK_USER\n')) {
+                    const jsonStr = data.description.slice('ASK_USER\n'.length);
+                    try {
+                        const payload = JSON.parse(jsonStr);
+                        setPendingConfirmation({
+                            description: payload.question,
+                            type: 'question',
+                            question: payload.question,
+                            options: payload.options,
+                            allowCustom: payload.allowCustom ?? true,
+                        });
+                    } catch {
+                        setPendingConfirmation({ description: data.description, type: 'action' });
+                    }
+                } else if (data.description.startsWith('PLAN_APPROVAL\n')) {
                     const jsonStr = data.description.slice('PLAN_APPROVAL\n'.length);
                     try {
                         const planItems = JSON.parse(jsonStr);
@@ -270,14 +304,36 @@ export function useAgent() {
         await doSendMessage(text, files);
     };
 
+    const resetSessionState = () => {
+        setPendingConfirmation(null);
+        setIsProcessing(false);
+        setError(null);
+        setTokenUsage({ promptTokens: 0, completionTokens: 0, totalPromptTokens: 0, totalCompletionTokens: 0 });
+        currentMessageIdRef.current = null;
+        messageQueueRef.current = [];
+        setQueueSize(0);
+    };
+
     const newSession = async () => {
+        // Deny any pending confirmation so the server doesn't hang
+        if (pendingConfirmation) {
+            fetch('/api/chat/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ response: 'deny' }),
+            }).catch(() => {});
+        }
+        // Stop any in-progress agent run
+        if (isProcessing) {
+            fetch('/api/chat/stop', { method: 'POST' }).catch(() => {});
+        }
         try {
             const res = await fetch('/api/sessions/new', { method: 'POST' });
             if (res.ok) {
                 const data = await res.json();
                 setMessages([]);
                 setSessionId(data.sessionId);
-                setError(null);
+                resetSessionState();
             }
         } catch {
             // ignore
@@ -285,10 +341,23 @@ export function useAgent() {
     };
 
     const loadSession = async (id: string) => {
+        // Deny any pending confirmation so the server doesn't hang
+        if (pendingConfirmation) {
+            fetch('/api/chat/confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ response: 'deny' }),
+            }).catch(() => {});
+        }
+        // Stop any in-progress agent run
+        if (isProcessing) {
+            fetch('/api/chat/stop', { method: 'POST' }).catch(() => {});
+        }
         try {
             const res = await fetch(`/api/sessions/${id}/load`, { method: 'POST' });
             if (res.ok) {
                 setSessionId(id);
+                resetSessionState();
                 await fetchHistory();
             }
         } catch {
@@ -348,6 +417,7 @@ export function useAgent() {
         loadSession,
         pendingConfirmation,
         respondToConfirmation,
+        tokenUsage,
     };
 }
 
