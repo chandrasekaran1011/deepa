@@ -279,13 +279,11 @@ describe('Agent Loop', () => {
     });
 
     describe('Error handling', () => {
-        it('returns messages collected so far when LLM yields an error', async () => {
+        it('throws when LLM yields an error', async () => {
             const provider = makeProvider([
                 { type: 'error', error: 'API timeout' },
             ]);
-            const messages = await runAgentLoop('hi', [], makeOptions(provider));
-            // Should return without throwing
-            expect(Array.isArray(messages)).toBe(true);
+            await expect(runAgentLoop('hi', [], makeOptions(provider))).rejects.toThrow('API timeout');
         });
 
         it('fires onText callback for each text chunk', async () => {
@@ -332,8 +330,8 @@ describe('Agent Loop', () => {
             };
             const messages = await runAgentLoop('loop', [], makeOptions(provider));
             expect(Array.isArray(messages)).toBe(true);
-            // Should have stopped at 50 iterations max
-            expect(callCount).toBeLessThanOrEqual(51);
+            // Should have stopped at 50 iterations max (compression may add a few extra calls)
+            expect(callCount).toBeLessThanOrEqual(55);
         }, 15_000);
     });
 });

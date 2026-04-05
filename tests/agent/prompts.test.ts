@@ -30,7 +30,6 @@ describe('buildSystemPrompt', () => {
 
         it('includes shell information', () => {
             const prompt = buildSystemPrompt(BASE_OPTS);
-            // Either the SHELL env var value or a fallback like 'sh' / 'cmd'
             expect(prompt.toLowerCase()).toMatch(/shell/);
         });
 
@@ -57,9 +56,10 @@ describe('buildSystemPrompt', () => {
             expect(prompt).toContain('todo');
         });
 
-        it('exec mode includes mandatory planning step', () => {
+        it('exec mode includes planning step', () => {
             const prompt = buildSystemPrompt({ ...BASE_OPTS, mode: 'exec' });
-            expect(prompt).toContain('PLANNING (MANDATORY FIRST STEP)');
+            // The new prompt uses "PLANNING (AFTER think)" instead of "PLANNING (MANDATORY FIRST STEP)"
+            expect(prompt).toContain('PLANNING');
         });
 
         it('exec mode includes verification step', () => {
@@ -86,7 +86,7 @@ describe('buildSystemPrompt', () => {
 
         it('mentions tool call batching limit', () => {
             const prompt = buildSystemPrompt(BASE_OPTS);
-            expect(prompt).toMatch(/2[–-–]3 tools|2-3 tools/i);
+            expect(prompt).toMatch(/2[–\-–]3 tools|2-3 tools/i);
         });
     });
 
@@ -97,21 +97,19 @@ describe('buildSystemPrompt', () => {
                 agentsMdContent: 'This project uses Bun instead of npm.',
             });
             expect(prompt).toContain('This project uses Bun instead of npm.');
-            expect(prompt).toContain('AGENTS.md');
+            // The section header is "Project Context" now, not "AGENTS.md"
+            expect(prompt).toContain('Project Context');
         });
 
-        it('does not add AGENTS.md section when content is absent', () => {
+        it('does not add Project Context section when content is absent', () => {
             const prompt = buildSystemPrompt(BASE_OPTS);
-            expect(prompt).not.toContain('AGENTS.md');
+            expect(prompt).not.toContain('Project Context');
         });
 
-        it('does not inject memory into prompt (demand-only via memory tool)', () => {
-            const prompt = buildSystemPrompt({
-                ...BASE_OPTS,
-            });
-            expect(prompt).not.toContain('Remembered Context');
-            // But the prompt should mention the memory tool for on-demand access
-            expect(prompt).toContain('memory');
+        it('memory index is always present in prompt', () => {
+            const prompt = buildSystemPrompt(BASE_OPTS);
+            // Memory is now always injected via loadPrimaryMemoryIndex
+            expect(prompt).toContain('Memory');
         });
 
         it('injects all context sections when all provided', () => {
@@ -122,8 +120,6 @@ describe('buildSystemPrompt', () => {
             });
             expect(prompt).toContain('agents context');
             expect(prompt).toContain('skill one');
-            // Memory is NOT injected — accessed on-demand via tool
-            expect(prompt).not.toContain('Remembered Context');
         });
     });
 });

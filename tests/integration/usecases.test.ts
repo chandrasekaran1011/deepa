@@ -385,9 +385,10 @@ describe('Use Case 9: Error Self-Correction', () => {
 
         const provider = scriptedProvider([
             [toolCall('tc1', 'todo', { todos: [{ content: 'Update version in package.json', status: 'in_progress' }] }), done()],
-            // First attempt: wrong path (simulate LLM error)
-            [toolCall('tc2', 'file_edit', { path: 'package.json', search: '"version": "1.0.0"', replace: '"version": "2.0.0"' }), done()],
-            // (file_edit succeeds because path is correct, but let's verify)
+            // Read the file first (required by validateInput)
+            [toolCall('tc2', 'file_read', { path: 'package.json' }), done()],
+            // Apply edit
+            [toolCall('tc3', 'file_edit', { path: 'package.json', search: '"version": "1.0.0"', replace: '"version": "2.0.0"' }), done()],
             [text('Updated version from 1.0.0 to 2.0.0 in package.json.'), done()],
         ]);
 
