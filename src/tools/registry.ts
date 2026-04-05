@@ -10,10 +10,16 @@ const MAX_TOOL_OUTPUT = 8_000;
 
 export interface Tool {
     name: string;
-    description: string;
+    description: string | ((context: ToolContext) => string);
     parameters: ZodSchema;
     schemaOverride?: Record<string, unknown>; // Use this raw JSON schema instead of parameters
     riskLevel: 'low' | 'medium' | 'high' | 'very-high';
+    
+    // Tool lifecycle guards
+    normalizeInput?: (params: unknown) => unknown;
+    validateInput?: (params: unknown, context: ToolContext) => Promise<{valid: boolean; message?: string}>;
+    maxOutputChars?: number;
+
     execute(params: unknown, context: ToolContext): Promise<ToolResult>;
 }
 
@@ -32,7 +38,7 @@ export class ToolRegistry {
         return Array.from(this.tools.values());
     }
 
-    getDefinitions(): ToolDefinition[] {
+    getDefinitions(context?: ToolContext): ToolDefinition[] {
         return this.list().map((tool) => {
             // Use override if provided
             let parameters = tool.schemaOverride ? { ...tool.schemaOverride } : undefined;
@@ -57,9 +63,13 @@ export class ToolRegistry {
                 delete parameters.additionalProperties;
             }
 
+            const resolvedDescription = typeof tool.description === 'function'
+                ? (context ? tool.description(context) : '[dynamic description]')
+                : tool.description;
+
             return {
                 name: tool.name,
-                description: tool.description,
+                description: resolvedDescription,
                 parameters,
             };
         });
@@ -76,8 +86,14 @@ export class ToolRegistry {
         //   - objects/arrays where strings are expected → JSON.stringify
         // We fix this centrally so every tool benefits.
         let sanitised: unknown = params;
-        if (typeof params === 'object' && params !== null) {
-            const entries = Object.entries(params as Record<string, unknown>)
+
+        // Apply tool's specific normalization if it exists
+        if (tool.normalizeInput) {
+            sanitised = tool.normalizeInput(sanitised);
+        }
+
+        if (typeof sanitised === 'object' && sanitised !== null) {
+            const entries = Object.entries(sanitised as Record<string, unknown>)
                 .filter(([, v]) => v !== null && v !== undefined)   // strip nulls entirely
                 .map(([k, v]) => {
                     // Stringify plain objects (e.g. LLM sends {foo:1} for a string param)
@@ -101,6 +117,18 @@ export class ToolRegistry {
             };
         }
 
+        // Run pre-execution validation
+        if (tool.validateInput) {
+            const validation = await tool.validateInput(parsed.data, context);
+            if (!validation.valid) {
+                context.log(`[registry] ${name} validation rejected: ${validation.message}`);
+                return {
+                    content: `Error: Pre-flight validation failed for "${name}": ${validation.message ?? 'Unknown reason.'}`,
+                    isError: true,
+                }
+            }
+        }
+
         // Check autonomy using the shared requiresConfirmation function
         if (requiresConfirmation(context.autonomy, tool.riskLevel)) {
             const response = await context.confirmAction(
@@ -121,10 +149,11 @@ export class ToolRegistry {
             return { content: `Error executing tool "${name}": ${errorMsg}`, isError: true };
         }
 
+        const limit = tool.maxOutputChars ?? MAX_TOOL_OUTPUT;
         // Truncate oversized tool output to protect the LLM context window
-        if (result.content.length > MAX_TOOL_OUTPUT) {
-            const truncated = result.content.slice(0, MAX_TOOL_OUTPUT);
-            const omitted = result.content.length - MAX_TOOL_OUTPUT;
+        if (result.content.length > limit) {
+            const truncated = result.content.slice(0, limit);
+            const omitted = result.content.length - limit;
             result = {
                 ...result,
                 content: `${truncated}\n\n[Output truncated — ${omitted.toLocaleString()} characters omitted. Use file_read with line ranges to read specific sections.]`,

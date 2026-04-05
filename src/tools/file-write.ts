@@ -1,6 +1,6 @@
 // ─── File write tool ───
 
-import { writeFileSync, appendFileSync, readFileSync, mkdirSync, existsSync } from 'fs';
+import { writeFileSync, appendFileSync, readFileSync, mkdirSync, existsSync, statSync } from 'fs';
 import { dirname } from 'path';
 import { resolvePath } from './resolve-path.js';
 import { z } from 'zod';
@@ -39,6 +39,29 @@ export const fileWriteTool: Tool = {
     parameters,
     riskLevel: 'medium',
 
+    async validateInput(params: unknown, context: ToolContext) {
+        const { path: filePath } = params as z.infer<typeof parameters>;
+        if (!filePath) return { valid: false, message: 'path is required' };
+        
+        const absPath = resolvePath(filePath, context.cwd);
+        if (!existsSync(absPath)) {
+            // New file creation is always allowed without reading
+            return { valid: true };
+        }
+
+        const stats = statSync(absPath);
+        const lastRead = context.readFileState.get(absPath);
+        
+        if (lastRead === undefined) {
+             return { valid: false, message: 'File has not been read yet. Read it first with file_read to avoid hallucinating overwrites.' };
+        }
+        if (Math.floor(stats.mtimeMs) > Math.floor(lastRead)) {
+             return { valid: false, message: 'File has been modified on disk since you last read it. Read it again with file_read before attempting to write.' };
+        }
+
+        return { valid: true };
+    },
+
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { path: filePath, content, append, createDirectories } = params as z.infer<typeof parameters>;
 
@@ -76,6 +99,8 @@ export const fileWriteTool: Tool = {
                 };
             }
             appendFileSync(absPath, content, 'utf-8');
+            // Update the read state so subsequent writes don't fail the verification
+            context.readFileState.set(absPath, statSync(absPath).mtimeMs);
             const totalLines = readFileSync(absPath, 'utf-8').split('\n').length;
             const chunkLines = content.split('\n').length;
             return {
@@ -92,6 +117,8 @@ export const fileWriteTool: Tool = {
         }
 
         writeFileSync(absPath, content, 'utf-8');
+        // Update the read state so subsequent writes don't fail the verification
+        context.readFileState.set(absPath, statSync(absPath).mtimeMs);
         const newLineCount = content.split('\n').length;
 
         if (oldLineCount !== undefined) {

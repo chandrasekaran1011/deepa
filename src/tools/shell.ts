@@ -5,7 +5,9 @@
 import { spawn, execSync } from 'child_process';
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { resolvePath } from './resolve-path.js';
+import { interpretCommandResult, detectBlockedSleepPattern } from './shell-semantics.js';
 import { z } from 'zod';
 import type { Tool } from './registry.js';
 import type { ToolResult, ToolContext } from '../types.js';
@@ -166,11 +168,46 @@ function runCommand(command: string, workDir: string, timeout: number, backgroun
             const output: string[] = [];
             if (stdout.trim()) output.push(`stdout:\n${stdout.trim()}`);
             if (stderr.trim()) output.push(`stderr:\n${stderr.trim()}`);
-            output.push(`\nExit code: ${code}`);
+            
+            const semanticResult = (code !== null) ? interpretCommandResult(command, code, stdout, stderr) : {isError: true};
+
+            if (semanticResult.message) {
+                 output.push(`\n${semanticResult.message}`);
+            } else if (code !== null) {
+                 output.push(`\nExit code: ${code}`);
+            }
+
+            let content = output.join('\n\n');
+
+            // Check for git lock hallucination loops
+            if (content.includes(".git/index.lock': File exists")) {
+                 content += '\n\n[Hint: A stray git lock was detected. You can usually fix this by running: rm -f .git/index.lock]';
+            }
+
+            // Truncation safeguard + salvage
+            const MAX_OUTPUT = 8000;
+            if (content.length > MAX_OUTPUT) {
+                 try {
+                     const tmpLogDir = join(tmpdir(), '.deepa', 'tmp');
+                     if (!existsSync(tmpLogDir)) mkdirSync(tmpLogDir, { recursive: true });
+                     const tmpFile = join(tmpLogDir, `shell_output_${Date.now()}.log`);
+                     const fullLength = content.length;
+                     writeFileSync(tmpFile, content, 'utf-8');
+
+                     // Slice top and bottom to give context, avoiding overlap
+                     const halfMax = Math.floor(MAX_OUTPUT / 2);
+                     const head = content.slice(0, halfMax);
+                     const tail = fullLength > MAX_OUTPUT ? content.slice(-halfMax) : '';
+                     content = `${head}\n\n... [Output truncated. Full command log (${Math.round(fullLength / 1024)}KB) saved to: ${tmpFile}. Use file_read to inspect the full trace if needed.] ...\n\n${tail}`;
+                 } catch (e) {
+                     // fallback to normal truncation
+                     content = content.slice(0, MAX_OUTPUT) + '\n\n... [Output truncated]';
+                 }
+            }
 
             resolvePromise({
-                content: output.join('\n\n'),
-                isError: code !== 0,
+                content,
+                isError: semanticResult.isError,
             });
         });
     });
@@ -184,6 +221,20 @@ export const shellTool: Tool = {
         'Prefer writing code to a file with file_write first, then running it.',
     parameters,
     riskLevel: 'high',
+
+    // Skip the generic 8000 char blocker since Shell brings its own smart local truncation logic
+    maxOutputChars: 20000,
+
+    async validateInput(params: unknown, context: ToolContext) {
+        const { command, background } = params as z.infer<typeof parameters>;
+        if (!background) {
+             const sleepCmd = detectBlockedSleepPattern(command);
+             if (sleepCmd) {
+                 return { valid: false, message: `Blocked: ${sleepCmd}. Do not block the session loop with sleep. Use background: true to run long commands instead. If you genuinely need a delay for pacing, keep it under 2 seconds.` };
+             }
+        }
+        return { valid: true };
+    },
 
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { command, cwd, timeout, background } = params as z.infer<typeof parameters>;

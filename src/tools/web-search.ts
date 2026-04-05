@@ -12,15 +12,35 @@ export const webSearchTool: Tool = {
     parameters: z.object({
         query: z.string().describe('The search query'),
         maxResults: z.number().optional().describe('Max results to return (default 8)'),
+        allowedDomains: z.array(z.string()).optional().describe('Optional list of domains to restrict search to (e.g. ["react.dev"])'),
+        blockedDomains: z.array(z.string()).optional().describe('Optional list of domains to exclude from search'),
     }),
     riskLevel: 'low',
 
     async execute(params: unknown, _context: ToolContext): Promise<ToolResult> {
-        const { query, maxResults = 8 } = params as { query: string; maxResults?: number };
+        const { query, maxResults = 8, allowedDomains, blockedDomains } = params as z.infer<typeof webSearchTool.parameters>;
+
+        if (allowedDomains?.length && blockedDomains?.length) {
+            return {
+                content: 'Error: Cannot specify both allowedDomains and blockedDomains in the same request',
+                isError: true,
+            };
+        }
+
+        // Build domain-restricted query
+        let finalQuery = query;
+        if (allowedDomains?.length) {
+            // DuckDuckGo requires separate site: operators joined with OR
+            const siteClause = allowedDomains.map((d: string) => `site:${d}`).join(' OR ');
+            finalQuery = `${query} (${siteClause})`;
+        } else if (blockedDomains?.length) {
+            const blocks = blockedDomains.map((d: string) => `-site:${d}`).join(' ');
+            finalQuery = `${query} ${blocks}`;
+        }
 
         // ── Strategy 1: DuckDuckGo Instant Answer JSON API ──
         try {
-            const encodedQuery = encodeURIComponent(query);
+            const encodedQuery = encodeURIComponent(finalQuery);
             const jsonUrl = `https://api.duckduckgo.com/?q=${encodedQuery}&format=json&no_html=1&skip_disambig=1`;
 
             const jsonRes = await fetch(jsonUrl, {
@@ -55,7 +75,7 @@ export const webSearchTool: Tool = {
 
         // ── Strategy 2: DuckDuckGo HTML lite (fallback) ──
         try {
-            const encodedQuery = encodeURIComponent(query);
+            const encodedQuery = encodeURIComponent(finalQuery);
             const htmlUrl = `https://html.duckduckgo.com/html/?q=${encodedQuery}`;
 
             const htmlRes = await fetch(htmlUrl, {

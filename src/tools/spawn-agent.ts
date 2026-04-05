@@ -4,11 +4,12 @@
 
 import { z } from 'zod';
 import type { Tool } from './registry.js';
-import type { ToolResult, ToolContext } from '../types.js';
+import type { ToolResult, ToolContext, Message, ToolResultContent, ToolCallContent } from '../types.js';
 import type { AgentRegistry } from '../plugins/agents.js';
 import { readAgentBody } from '../plugins/agents.js';
 import { ToolRegistry } from './registry.js';
-import { runAgentLoop } from '../agent/loop.js';
+import { runAgentLoop, MAX_SPAWN_DEPTH } from '../agent/loop.js';
+import { loadSubagentMemory } from '../context/memory.js';
 import type { LLMProvider } from '../providers/base.js';
 import type { DeepaConfig } from '../types.js';
 import { getModel } from '../store/models.js';
@@ -18,8 +19,9 @@ const parameters = z.object({
     agent: z.string().describe('Name of the agent to spawn (from Available Agents list)'),
     task: z.string().describe(
         'Clear, self-contained task description for the subagent. ' +
-        'Include all needed context explicitly — the subagent has NO access to the current conversation.',
+        'If inherit_context is false, include all needed context explicitly.',
     ),
+    inherit_context: z.boolean().optional().describe('If true, the subagent securely inherits the exact conversation history up to this point stripped of huge outputs for prompt caching.'),
 });
 
 /**
@@ -43,7 +45,18 @@ export function createSpawnAgentTool(
         riskLevel: 'medium',
 
         async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
-            const { agent: agentName, task } = params as z.infer<typeof parameters>;
+            const { agent: agentName, task, inherit_context } = params as z.infer<typeof parameters>;
+
+            // ── 0. Recursion depth guard ──
+            const currentDepth = context.spawnDepth ?? 0;
+            if (currentDepth >= MAX_SPAWN_DEPTH) {
+                return {
+                    content: `Error: Maximum subagent nesting depth (${MAX_SPAWN_DEPTH}) reached. ` +
+                        `Cannot spawn "${agentName}" at depth ${currentDepth}. ` +
+                        `Perform this task directly instead of delegating.`,
+                    isError: true,
+                };
+            }
 
             // ── 1. Look up agent definition ──
             const agentDef = agentRegistry.get(agentName);
@@ -111,14 +124,62 @@ export function createSpawnAgentTool(
                 mode: 'exec',
             };
 
-            // ── 5. Run isolated agent loop ──
+            // ── 5. Build Forked Context (if enabled) ──
+            let forkedHistory: Message[] = [];
+            if (inherit_context && context.messages) {
+                const MAX_STRING_CONTENT = 500; // Truncate large string-content messages
+                forkedHistory = context.messages.map((msg) => {
+                    // Truncate large string-content messages (e.g. big assistant text)
+                    if (typeof msg.content === 'string') {
+                        if (msg.content.length > MAX_STRING_CONTENT) {
+                            return { ...msg, content: msg.content.slice(0, MAX_STRING_CONTENT) + '\n[...truncated for fork]' };
+                        }
+                        return msg;
+                    }
+
+                    const strippedContent = msg.content.map((block) => {
+                        if (block.type === 'tool_result') {
+                            return { ...block, content: '[Fork Processed - Available in Parent Context]' } as ToolResultContent;
+                        }
+                        // Strip large tool_call arguments (e.g. file_write with huge content)
+                        if (block.type === 'tool_call') {
+                            const args = block.arguments;
+                            const argsStr = JSON.stringify(args);
+                            if (argsStr.length > MAX_STRING_CONTENT) {
+                                const stripped = { ...args };
+                                // Remove content/code fields that tend to be huge
+                                for (const key of ['content', 'code', 'body', 'data']) {
+                                    if (key in stripped && typeof stripped[key] === 'string' && (stripped[key] as string).length > 200) {
+                                        stripped[key] = '[...truncated for fork]';
+                                    }
+                                }
+                                return { ...block, arguments: stripped } as ToolCallContent;
+                            }
+                        }
+                        return block;
+                    });
+
+                    return { ...msg, content: strippedContent };
+                });
+            }
+
+            // ── 6. Inject Subagent Memory ──
+            let finalTaskCommand = task;
+            const subagentMemory = loadSubagentMemory(agentName);
+            if (subagentMemory) {
+                finalTaskCommand += `\n\n=== YOUR ORGANISED MEMORY INDEX ===\n` +
+                `You have a dedicated memory file at ~/.deepa/memory/agents/${agentName}/MEMORY.md.\n` +
+                `Use your file_write tool to append new rules or knowledge to this file if needed. Current entries:\n\n${subagentMemory}\n`;
+            }
+
+            // ── 7. Run isolated agent loop ──
             const startTime = Date.now();
             let finalMessage = '';
 
             try {
                 const messages = await runAgentLoop(
-                    task,
-                    [], // ← EMPTY history — full context isolation
+                    inherit_context ? `[FORK DIRECTIVE]\n${finalTaskCommand}` : finalTaskCommand,
+                    forkedHistory, // Uses stripped history if inherit_context is true, else []
                     {
                         provider: subProvider,
                         tools: scopedRegistry,
@@ -127,6 +188,9 @@ export function createSpawnAgentTool(
                         // Agent body becomes the project context — injected cleanly by buildSystemPrompt
                         agentsMdContent: agentPrompt || undefined,
                         confirmAction: context.confirmAction,
+                        signal: context.signal, // propagate abort signal from parent
+                        maxIterations: agentDef.maxTurns, // enforce agent-defined turn limit
+                        spawnDepth: currentDepth + 1, // increment nesting depth
                         onToolCall: (name, args) => {
                             context.log(`[spawn_agent:${agentName}] → ${name}(${JSON.stringify(args).slice(0, 100)})`);
                         },
