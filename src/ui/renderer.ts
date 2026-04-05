@@ -1,6 +1,7 @@
 // ─── Terminal UI: markdown rendering, spinners, prompt ───
 
 import chalk from 'chalk';
+import { marked, type Token, type Tokens } from 'marked';
 import ora, { type Ora } from 'ora';
 import { createInterface, emitKeypressEvents } from 'readline';
 
@@ -19,17 +20,88 @@ export const C = {
 
 // ─── Markdown-ish rendering ───────────────────────────────
 
+/**
+ * Render markdown to styled terminal text using marked's lexer.
+ * Handles headings, bold, italic, code, lists, blockquotes, and code blocks.
+ */
 export function renderMarkdown(text: string): string {
-    return text
-        .replace(/^### (.+)$/gm, chalk.bold.cyan('   $1'))
-        .replace(/^## (.+)$/gm, chalk.bold.blue('  $1'))
-        .replace(/^# (.+)$/gm, chalk.bold.magenta(' $1'))
-        .replace(/\*\*(.+?)\*\*/g, chalk.bold('$1'))
-        .replace(/(?<!\*)\*(.+?)\*(?!\*)/g, chalk.italic('$1'))
-        .replace(/`([^`]+)`/g, C.accent('$1'))
-        .replace(/\[x\]/g, C.success('☑'))
-        .replace(/\[ \]/g, C.muted('☐'))
-        .replace(/\[\/\]/g, C.warn('◐'));
+    const tokens = marked.lexer(text);
+    return renderTokens(tokens).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function renderTokens(tokens: Token[]): string {
+    return tokens.map(renderToken).join('');
+}
+
+function renderToken(token: Token): string {
+    switch (token.type) {
+        case 'heading': {
+            const t = token as Tokens.Heading;
+            const inline = renderInlineTokens(t.tokens);
+            if (t.depth === 1) return '\n' + chalk.bold.magenta(inline) + '\n';
+            if (t.depth === 2) return '\n' + chalk.bold.blue(inline) + '\n';
+            return '\n' + chalk.bold.cyan(inline) + '\n';
+        }
+        case 'paragraph': {
+            const t = token as Tokens.Paragraph;
+            return renderInlineTokens(t.tokens) + '\n';
+        }
+        case 'text': {
+            const t = token as Tokens.Text;
+            if ('tokens' in t && t.tokens) return renderInlineTokens(t.tokens);
+            return t.text;
+        }
+        case 'list': {
+            const t = token as Tokens.List;
+            return t.items.map((item, i) => {
+                const bullet = t.ordered ? C.muted(`${(t.start || 1) + i}.`) : C.muted('•');
+                // List item tokens are block-level (text/paragraph), render them recursively
+                const content = renderTokens(item.tokens).replace(/\n+$/, '');
+                const checkbox = item.checked === true ? C.success('☑ ') : item.checked === false ? C.muted('☐ ') : '';
+                return `  ${bullet} ${checkbox}${content}`;
+            }).join('\n') + '\n';
+        }
+        case 'code': {
+            const t = token as Tokens.Code;
+            const lang = t.lang ? C.muted(` ${t.lang}`) : '';
+            const border = C.muted('│ ');
+            const lines = t.text.split('\n').map(l => `  ${border}${chalk.dim(l)}`).join('\n');
+            return '\n  ' + C.muted('┌──') + lang + '\n' + lines + '\n  ' + C.muted('└──') + '\n';
+        }
+        case 'blockquote': {
+            const t = token as Tokens.Blockquote;
+            const content = renderTokens(t.tokens).trim();
+            return content.split('\n').map(l => `  ${C.muted('│')} ${chalk.dim(l)}`).join('\n') + '\n';
+        }
+        case 'hr':
+            return C.muted('─'.repeat(40)) + '\n';
+        case 'space':
+            return '\n';
+        case 'html':
+            return (token as Tokens.HTML).text;
+        default:
+            return 'text' in token ? (token as any).text : '';
+    }
+}
+
+function renderInlineTokens(tokens: Token[] | undefined): string {
+    if (!tokens) return '';
+    return tokens.map(t => {
+        switch (t.type) {
+            case 'strong': return chalk.bold(renderInlineTokens((t as Tokens.Strong).tokens));
+            case 'em': return chalk.italic(renderInlineTokens((t as Tokens.Em).tokens));
+            case 'codespan': return C.accent((t as Tokens.Codespan).text);
+            case 'del': return chalk.strikethrough(renderInlineTokens((t as Tokens.Del).tokens));
+            case 'link': return C.accent(renderInlineTokens((t as Tokens.Link).tokens)) + C.muted(` (${(t as Tokens.Link).href})`);
+            case 'text': {
+                const tt = t as Tokens.Text;
+                return ('tokens' in tt && tt.tokens) ? renderInlineTokens(tt.tokens) : tt.text;
+            }
+            case 'escape': return (t as Tokens.Escape).text;
+            case 'br': return '\n';
+            default: return 'text' in t ? (t as any).text : '';
+        }
+    }).join('');
 }
 
 // ─── Spinner ──────────────────────────────────────────────
@@ -133,6 +205,52 @@ export async function confirmAction(description: string): Promise<boolean | stri
     const spinnerText = currentSpinner ? currentSpinner.text : '';
     stopSpinner();
 
+    // ─── ASK_USER: structured question with selectable options ───
+    if (description.startsWith('ASK_USER\n')) {
+        try {
+            const payload = JSON.parse(description.slice('ASK_USER\n'.length));
+            const { question, options, allowCustom } = payload as {
+                question: string;
+                options: { label: string; description?: string }[];
+                allowCustom?: boolean;
+            };
+
+            console.log();
+            console.log(C.accent('  ┌─ ') + chalk.bold(question));
+            console.log(C.accent('  └──────────────────────────────────────────────────────'));
+            console.log();
+
+            const { selectPrompt } = await import('./select.js');
+            const selectOptions = options.map((opt, i) => ({
+                label: opt.label,
+                value: opt.label,
+                hint: opt.description || '',
+            }));
+
+            if (allowCustom !== false) {
+                selectOptions.push({ label: 'Other', value: '__custom__', hint: 'type a custom answer' });
+            }
+            selectOptions.push({ label: 'Skip', value: '__skip__', hint: 'dismiss this question' });
+
+            const choice = await selectPrompt(selectOptions);
+
+            if (choice === '__skip__' || choice === 'deny') {
+                if (wasSpinning) startSpinner(spinnerText);
+                return false;
+            } else if (choice === '__custom__') {
+                const feedback = await promptUser(C.accent('  answer ') + C.muted('❯ '));
+                if (wasSpinning) startSpinner(spinnerText);
+                return feedback || false;
+            } else {
+                if (wasSpinning) startSpinner(spinnerText);
+                return choice;
+            }
+        } catch {
+            // Fall through to default confirmation if parse fails
+        }
+    }
+
+    // ─── Default confirmation flow ───
     console.log();
     console.log(C.warn('  ┌─ Action requires approval ──────────────────────────'));
     for (const line of description.split('\n').slice(0, 12)) {
