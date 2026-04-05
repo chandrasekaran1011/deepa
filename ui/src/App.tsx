@@ -15,7 +15,7 @@ interface Attachment {
 }
 
 function App() {
-  const { messages, sendMessage, isProcessing, error, stopProcessing, sessionId, newSession, loadSession, pendingConfirmation, respondToConfirmation } = useAgent();
+  const { messages, sendMessage, isProcessing, error, stopProcessing, sessionId, newSession, loadSession, pendingConfirmation, respondToConfirmation, tokenUsage } = useAgent();
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -247,6 +247,7 @@ function App() {
           <BottomControls
             onToggleSettings={() => { setShowSettings(!showSettings); setShowSessions(false); }}
             refreshKey={settingsRefreshKey}
+            tokenUsage={tokenUsage}
           />
         </div>
       </div>

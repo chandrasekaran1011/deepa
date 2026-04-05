@@ -34,6 +34,10 @@ import { webFetchTool } from '../tools/web-fetch.js';
 import { webSearchTool } from '../tools/web-search.js';
 import { todoTool } from '../tools/todo.js';
 import { gitWorktreeTool } from '../tools/worktree.js';
+import { thinkTool } from '../tools/think.js';
+import { askUserTool } from '../tools/ask-user.js';
+import { loadAgents } from '../plugins/agents.js';
+import { createSpawnAgentTool } from '../tools/spawn-agent.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,9 +80,10 @@ function convertMessagesToUI(messages: Message[]): any[] {
         const genId = () => `hist-${idCounter++}-${Math.random().toString(36).slice(2, 6)}`;
 
         if (msg.role === 'user') {
+            const stripTags = (s: string) => s.replace(/^<user_input>\n?/, '').replace(/\n?<\/user_input>$/, '');
             const text = typeof msg.content === 'string'
-                ? msg.content
-                : (msg.content as any[]).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
+                ? stripTags(msg.content)
+                : (msg.content as any[]).filter((c: any) => c.type === 'text').map((c: any) => stripTags(c.text)).join('\n');
             uiMessages.push({
                 id: genId(),
                 role: 'user',
@@ -116,6 +121,18 @@ function convertMessagesToUI(messages: Message[]): any[] {
             });
         }
         // Skip 'tool' role messages — already processed above
+
+        // Info messages (from slash commands, compression status, etc.)
+        if (msg.role === 'info') {
+            const text = typeof msg.content === 'string'
+                ? msg.content
+                : (msg.content as any[]).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
+            uiMessages.push({
+                id: genId(),
+                role: 'system',
+                content: text,
+            });
+        }
     }
 
     return uiMessages;
@@ -168,9 +185,18 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
     tools.register(webSearchTool);
     tools.register(todoTool);
     tools.register(gitWorktreeTool);
+    tools.register(thinkTool);
+    tools.register(askUserTool);
 
     if (skillRegistry.size > 0) {
         tools.register(createUseSkillTool(skillRegistry));
+    }
+
+    // Load and register agents
+    const agentRegistry = loadAgents(cwd);
+    const agentDescriptions = agentRegistry.getDescriptions();
+    if (agentRegistry.size > 0) {
+        tools.register(createSpawnAgentTool(agentRegistry, tools, provider, config));
     }
 
     let mcpConnections: MCPConnection[] = [];
@@ -244,6 +270,12 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
             model: config.provider.model,
             provider: config.provider.type,
             autonomy: config.autonomy,
+            mode: config.mode,
+            reasoning: config.provider.reasoningEffort
+                || (config.provider.thinkingBudget && config.provider.thinkingBudget >= 32000 ? 'high'
+                    : config.provider.thinkingBudget && config.provider.thinkingBudget >= 10000 ? 'medium'
+                    : config.provider.thinkingBudget && config.provider.thinkingBudget >= 1024 ? 'low'
+                    : 'off'),
             messageCount: conversationHistory.length,
             cwd,
         });
@@ -261,6 +293,8 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                 baseUrl: m.baseUrl,
                 maxTokens: m.maxTokens,
                 useMaxCompletionTokens: m.useMaxCompletionTokens,
+                reasoningEffort: m.reasoningEffort,
+                thinkingBudget: m.thinkingBudget,
                 apiKeyMasked: (m as any).apiKeyMasked,
                 isDefault: m.isDefault,
             })),
@@ -270,7 +304,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
 
     app.post('/api/models', (req, res) => {
         try {
-            const { name, provider: prov, model: mod, baseUrl, apiKey, maxTokens, useMaxCompletionTokens, isDefault } = req.body;
+            const { name, provider: prov, model: mod, baseUrl, apiKey, maxTokens, useMaxCompletionTokens, isDefault, reasoningEffort, thinkingBudget } = req.body;
             if (!name || !prov || !mod || !baseUrl) {
                 return res.status(400).json({ error: 'name, provider, model, and baseUrl are required' });
             }
@@ -283,6 +317,8 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                 maxTokens: maxTokens || 16384,
                 useMaxCompletionTokens: !!useMaxCompletionTokens,
                 isDefault: !!isDefault,
+                reasoningEffort: reasoningEffort || undefined,
+                thinkingBudget: thinkingBudget || undefined,
             });
             res.json({ status: 'ok' });
         } catch (err: any) {
@@ -358,17 +394,21 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
     // ─── Settings endpoint ───
 
     app.post('/api/settings', (req, res) => {
-        const { model, autonomy } = req.body;
+        const { model, autonomy, mode } = req.body;
 
         if (model) {
             const m = getModel(model);
             if (m) {
                 config.provider = {
                     ...config.provider,
+                    type: m.provider as any,
                     model: m.model,
                     baseUrl: m.baseUrl,
                     apiKey: m.apiKey,
                     maxTokens: m.maxTokens,
+                    useMaxCompletionTokens: m.useMaxCompletionTokens,
+                    reasoningEffort: m.reasoningEffort,
+                    thinkingBudget: m.thinkingBudget,
                 };
                 provider = createProvider(config.provider);
             }
@@ -378,11 +418,43 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
             config.autonomy = autonomy as 'low' | 'medium' | 'high';
         }
 
+        if (mode && ['chat', 'plan', 'exec'].includes(mode)) {
+            config.mode = mode as 'chat' | 'plan' | 'exec';
+        }
+
+        const { reasoning } = req.body;
+        if (reasoning !== undefined) {
+            if (reasoning === 'off') {
+                config.provider.reasoningEffort = undefined;
+                config.provider.thinkingBudget = undefined;
+            } else if (['low', 'medium', 'high'].includes(reasoning)) {
+                const level = reasoning as 'low' | 'medium' | 'high';
+                if (config.provider.type === 'anthropic') {
+                    // Map reasoning levels to thinking budget for Anthropic
+                    const budgetMap: Record<string, number> = { low: 1024, medium: 10000, high: 32000 };
+                    config.provider.thinkingBudget = budgetMap[level];
+                    config.provider.reasoningEffort = undefined;
+                } else {
+                    // OpenAI/Azure use reasoning_effort directly
+                    config.provider.reasoningEffort = level;
+                    config.provider.thinkingBudget = undefined;
+                }
+                // Recreate provider to pick up new config
+                provider = createProvider(config.provider);
+            }
+        }
+
         res.json({
             status: 'ok',
             model: config.provider.model,
             provider: config.provider.type,
             autonomy: config.autonomy,
+            mode: config.mode,
+            reasoning: config.provider.reasoningEffort
+                || (config.provider.thinkingBudget && config.provider.thinkingBudget >= 32000 ? 'high'
+                    : config.provider.thinkingBudget && config.provider.thinkingBudget >= 10000 ? 'medium'
+                    : config.provider.thinkingBudget && config.provider.thinkingBudget >= 1024 ? 'low'
+                    : 'off'),
         });
     });
 
@@ -501,10 +573,10 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
         currentAbortController = new AbortController();
 
         try {
-            // Spread config but keep reference to config.autonomy live via loop.ts getter
+            // Spread config but keep references to mutable config live via getters
             const updatedConfig = {
                 ...config,
-                mode: 'exec' as const,
+                get mode() { return config.mode; },
                 get autonomy() { return config.autonomy; },
             };
 
@@ -514,7 +586,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                 config: updatedConfig,
                 cwd,
                 agentsMdContent,
-
+                agentDescriptions: agentRegistry.size > 0 ? agentDescriptions : undefined,
                 skillDescriptions: skillRegistry.getDescriptions(),
                 signal: currentAbortController.signal,
                 confirmAction: async (description: string) => {
@@ -535,7 +607,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                     sendEvent('tool_result', { name, result, isError, callId: lastToolCallId });
                     lastToolCallId = null;
                 },
-                onTokenUsage: (p, c) => {
+                onTokenUsage: (p, c, totalPrompt, totalCompletion) => {
                     recordTokenUsage({
                         model: config.provider.model,
                         provider: config.provider.type,
@@ -543,6 +615,18 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                         completionTokens: c,
                         sessionId: session.id,
                     });
+                    sendEvent('token_usage', {
+                        promptTokens: p,
+                        completionTokens: c,
+                        totalPromptTokens: totalPrompt,
+                        totalCompletionTokens: totalCompletion,
+                    });
+                },
+                onProgress: (msgs) => {
+                    // Incremental save — persist after each tool round so progress survives crashes
+                    conversationHistory = msgs;
+                    session.messages = msgs;
+                    saveSession(session);
                 },
             });
 
@@ -552,6 +636,12 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
 
             sendEvent('done', {});
         } catch (err: any) {
+            // Always save progress on error — so resume doesn't lose work
+            if (conversationHistory.length > 0) {
+                session.messages = conversationHistory;
+                saveSession(session);
+            }
+
             if (currentAbortController?.signal.aborted) {
                 // Already sent 'done' from stop handler
             } else {
