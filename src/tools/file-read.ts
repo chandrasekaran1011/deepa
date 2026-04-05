@@ -3,6 +3,7 @@
 import { readFileSync, existsSync, statSync } from 'fs';
 import { resolvePath } from './resolve-path.js';
 import { z } from 'zod';
+import { truncateOutput } from '../utils/text.js';
 import type { Tool } from './registry.js';
 import type { ToolResult, ToolContext } from '../types.js';
 
@@ -40,6 +41,9 @@ export const fileReadTool: Tool = {
             };
         }
 
+        // Track that we've read this file at its current modification time
+        context.readFileState.set(absPath, stats.mtimeMs);
+
         const content = readFileSync(absPath, 'utf-8');
         const lines = content.split('\n');
         const totalLines = lines.length;
@@ -65,7 +69,7 @@ export const fileReadTool: Tool = {
 
         if (isFullyRead) {
             return {
-                content: `File: ${absPath} (${totalLines} lines)\n\n${output}`,
+                content: truncateOutput(`File: ${absPath} (${totalLines} lines)\n\n${output}`),
             };
         } else {
             let note = `\n\n[Note: This file has ${totalLines} lines. Lines ${start}-${end} are shown.`;
@@ -75,7 +79,7 @@ export const fileReadTool: Tool = {
                 note += `]`;
             }
             return {
-                content: `File: ${absPath} (Showing lines ${start}-${end} of ${totalLines})\n\n${output}${note}`,
+                content: truncateOutput(`File: ${absPath} (Showing lines ${start}-${end} of ${totalLines})\n\n${output}${note}`),
             };
         }
     },

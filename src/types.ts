@@ -33,7 +33,7 @@ export interface ImageContent {
 export type MessageContent = TextContent | ImageContent | ToolCallContent | ToolResultContent;
 
 export interface Message {
-    role: 'system' | 'user' | 'assistant' | 'tool';
+    role: 'system' | 'user' | 'assistant' | 'tool' | 'info';
     content: string | MessageContent[];
 }
 
@@ -85,6 +85,13 @@ export interface ToolContext {
     autonomy: AutonomyLevel;
     confirmAction: (description: string) => Promise<boolean | string>;
     log: (message: string) => void;
+    readFileState: Map<string, number>; // Maps explicit absolute path -> timestamp
+    askSubagent?: (prompt: string, context: string) => Promise<string>;
+    messages: Message[];
+    /** Current spawn depth — 0 for the root agent, incremented for each nested spawn */
+    spawnDepth?: number;
+    /** Abort signal propagated from the parent — subagents should respect this */
+    signal?: AbortSignal;
 }
 
 // ────────────────── Config ──────────────────

@@ -1,12 +1,13 @@
 // ─── Persistent memory system ───
 
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, existsSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { join, basename, resolve } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 
 const MEMORY_DIR = join(homedir(), '.deepa', 'memory');
 
+/** Only create directories when explicitly requested (write operations) */
 function ensureMemoryDir(subdir?: string): string {
     const dir = subdir ? join(MEMORY_DIR, subdir) : MEMORY_DIR;
     if (!existsSync(dir)) {
@@ -15,10 +16,13 @@ function ensureMemoryDir(subdir?: string): string {
     return dir;
 }
 
+/** Resolve the directory path without creating it */
+function resolveMemoryDir(subdir?: string): string {
+    return subdir ? join(MEMORY_DIR, subdir) : MEMORY_DIR;
+}
+
 /**
  * Generate a collision-resistant project key from the full resolved path.
- * Uses the directory basename + a short SHA-1 hash of the absolute path so
- * two projects named "api" in different directories never share memory.
  */
 function projectKey(cwd: string): string {
     const abs = resolve(cwd);
@@ -27,143 +31,111 @@ function projectKey(cwd: string): string {
     return `${name}_${hash}`;
 }
 
-/**
- * Load all memory (global + project-specific) as a string for context injection.
- */
-export function loadMemory(cwd: string): string | undefined {
-    const parts: string[] = [];
-
-    // Global memory
-    const globalDir = ensureMemoryDir('global');
-    if (existsSync(globalDir)) {
-        const files = readdirSync(globalDir).filter((f) => f.endsWith('.md'));
-        for (const file of files) {
-            const content = readFileSync(join(globalDir, file), 'utf-8').trim();
-            if (content) parts.push(`## ${file.replace('.md', '')}\n${content}`);
-        }
-    }
-
-    // Project memory
-    const projDir = ensureMemoryDir(`projects/${projectKey(cwd)}`);
-    if (existsSync(projDir)) {
-        const files = readdirSync(projDir).filter((f) => f.endsWith('.md'));
-        for (const file of files) {
-            const content = readFileSync(join(projDir, file), 'utf-8').trim();
-            if (content) parts.push(`## ${file.replace('.md', '')} (project)\n${content}`);
-        }
-    }
-
-    return parts.length > 0 ? parts.join('\n\n') : undefined;
-}
-
-/**
- * Save a memory entry.
- */
-export function saveMemory(
-    key: string,
-    content: string,
-    scope: 'global' | 'project',
-    cwd: string,
-): void {
-    const dir =
-        scope === 'global'
-            ? ensureMemoryDir('global')
-            : ensureMemoryDir(`projects/${projectKey(cwd)}`);
-
-    const filePath = join(dir, `${key.replace(/[^a-zA-Z0-9_-]/g, '_')}.md`);
-    writeFileSync(filePath, content, 'utf-8');
-}
-
-/**
- * Append to an existing memory entry. Creates it if it doesn't exist.
- */
-export function appendMemory(
-    key: string,
-    content: string,
-    scope: 'global' | 'project',
-    cwd: string,
-): void {
-    const dir =
-        scope === 'global'
-            ? ensureMemoryDir('global')
-            : ensureMemoryDir(`projects/${projectKey(cwd)}`);
-
-    const filePath = join(dir, `${key.replace(/[^a-zA-Z0-9_-]/g, '_')}.md`);
+function safeRead(filePath: string): string | undefined {
     if (existsSync(filePath)) {
-        appendFileSync(filePath, `\n\n${content}`, 'utf-8');
-    } else {
-        writeFileSync(filePath, content, 'utf-8');
+        return readFileSync(filePath, 'utf-8').trim();
     }
-}
-
-/**
- * List all memory keys.
- */
-export function listMemory(cwd: string): { key: string; scope: string }[] {
-    const results: { key: string; scope: string }[] = [];
-
-    const globalDir = join(MEMORY_DIR, 'global');
-    if (existsSync(globalDir)) {
-        for (const file of readdirSync(globalDir).filter((f) => f.endsWith('.md'))) {
-            results.push({ key: file.replace('.md', ''), scope: 'global' });
-        }
-    }
-
-    const projDir = join(MEMORY_DIR, 'projects', projectKey(cwd));
-    if (existsSync(projDir)) {
-        for (const file of readdirSync(projDir).filter((f) => f.endsWith('.md'))) {
-            results.push({ key: file.replace('.md', ''), scope: 'project' });
-        }
-    }
-
-    return results;
-}
-
-/**
- * Read a single memory entry by key. Checks project scope first, then global.
- */
-export function readMemoryByKey(key: string, cwd: string): { content: string; scope: string } | undefined {
-    const sanitized = key.replace(/[^a-zA-Z0-9_-]/g, '_');
-
-    // Check project scope first
-    const projDir = join(MEMORY_DIR, 'projects', projectKey(cwd));
-    const projFile = join(projDir, `${sanitized}.md`);
-    if (existsSync(projFile)) {
-        return { content: readFileSync(projFile, 'utf-8').trim(), scope: 'project' };
-    }
-
-    // Check global scope
-    const globalFile = join(MEMORY_DIR, 'global', `${sanitized}.md`);
-    if (existsSync(globalFile)) {
-        return { content: readFileSync(globalFile, 'utf-8').trim(), scope: 'global' };
-    }
-
     return undefined;
 }
 
+function truncateIndex(content: string, source: string): string {
+    const lines = content.split('\n');
+    if (lines.length > 200) {
+        return lines.slice(0, 200).join('\n') + `\n\n> WARNING: ${source} memory index exceeded 200 lines and was truncated. Move details to individual files!`;
+    }
+    return content;
+}
+
+// ─── Cache ───
+// Avoid re-reading the filesystem on every agent turn. Cache invalidates after 30s.
+interface CacheEntry {
+    value: string;
+    timestamp: number;
+}
+const indexCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 30_000;
+
+function getCached(key: string): string | undefined {
+    const entry = indexCache.get(key);
+    if (entry && Date.now() - entry.timestamp < CACHE_TTL_MS) {
+        return entry.value;
+    }
+    indexCache.delete(key);
+    return undefined;
+}
+
+function setCache(key: string, value: string): void {
+    indexCache.set(key, { value, timestamp: Date.now() });
+}
+
+/** Clear the memory cache (useful for testing) */
+export function clearMemoryCache(): void {
+    indexCache.clear();
+}
+
 /**
- * List all memory keys with a one-line preview of each entry's content.
+ * Load the primary memory indexes (Global + Project) for the main agent system prompt.
+ * This looks for `MEMORY.md` which acts as the hierarchical index table.
+ *
+ * Read-only: does NOT create directories as a side effect.
  */
-export function listMemoryWithPreview(cwd: string): { key: string; scope: string; preview: string }[] {
-    const results: { key: string; scope: string; preview: string }[] = [];
+export function loadPrimaryMemoryIndex(cwd: string): string {
+    const cacheKey = `primary:${cwd}`;
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
 
-    const globalDir = join(MEMORY_DIR, 'global');
-    if (existsSync(globalDir)) {
-        for (const file of readdirSync(globalDir).filter((f) => f.endsWith('.md'))) {
-            const content = readFileSync(join(globalDir, file), 'utf-8').trim();
-            const preview = content.split('\n')[0].slice(0, 80);
-            results.push({ key: file.replace('.md', ''), scope: 'global', preview });
-        }
+    const parts: string[] = [];
+
+    // Global memory index — read only, don't create dir
+    const globalDir = resolveMemoryDir('global');
+    const globalIndex = safeRead(join(globalDir, 'MEMORY.md'));
+    if (globalIndex) {
+        parts.push(`### Global Memory Index (\`~/.deepa/memory/global/MEMORY.md\`)\n${truncateIndex(globalIndex, 'Global')}`);
+    } else {
+        parts.push(`### Global Memory Index (\`~/.deepa/memory/global/MEMORY.md\`)\n*Empty. Create file to start remembering global preferences.*`);
     }
 
-    const projDir = join(MEMORY_DIR, 'projects', projectKey(cwd));
-    if (existsSync(projDir)) {
-        for (const file of readdirSync(projDir).filter((f) => f.endsWith('.md'))) {
-            const content = readFileSync(join(projDir, file), 'utf-8').trim();
-            const preview = content.split('\n')[0].slice(0, 80);
-            results.push({ key: file.replace('.md', ''), scope: 'project', preview });
-        }
+    // Project memory index — read only, don't create dir
+    const projDir = resolveMemoryDir(`projects/${projectKey(cwd)}`);
+    const projIndex = safeRead(join(projDir, 'MEMORY.md'));
+    if (projIndex) {
+        parts.push(`### Project Memory Index (\`${projDir}/MEMORY.md\`)\n${truncateIndex(projIndex, 'Project')}`);
+    } else {
+        parts.push(`### Project Memory Index (\`${projDir}/MEMORY.md\`)\n*Empty. Create file to start tracking project nuances.*`);
     }
 
-    return results;
+    const result = parts.join('\n\n');
+    setCache(cacheKey, result);
+    return result;
+}
+
+/**
+ * Load the specific memory index for a given subagent (e.g. `CodeReviewer`).
+ * Read-only: does NOT create directories as a side effect.
+ */
+export function loadSubagentMemory(agentType: string): string | undefined {
+    const cacheKey = `agent:${agentType}`;
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
+    const agentDir = resolveMemoryDir(`agents/${agentType}`);
+    const result = safeRead(join(agentDir, 'MEMORY.md'));
+    if (result) setCache(cacheKey, result);
+    return result;
+}
+
+/**
+ * Ensure the memory directory exists for write operations.
+ * Called by agents before writing memory files.
+ */
+export function ensureGlobalMemoryDir(): string {
+    return ensureMemoryDir('global');
+}
+
+export function ensureProjectMemoryDir(cwd: string): string {
+    return ensureMemoryDir(`projects/${projectKey(cwd)}`);
+}
+
+export function ensureAgentMemoryDir(agentType: string): string {
+    return ensureMemoryDir(`agents/${agentType}`);
 }
