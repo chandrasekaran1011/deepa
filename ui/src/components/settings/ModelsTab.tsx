@@ -7,6 +7,8 @@ interface ModelInfo {
     model: string;
     baseUrl: string;
     maxTokens: number;
+    reasoningEffort?: string;
+    thinkingBudget?: number;
     apiKeyMasked?: string;
     isDefault: boolean;
 }
@@ -36,6 +38,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
     const [apiKey, setApiKey] = useState('');
     const [maxTokens, setMaxTokens] = useState(16384);
     const [useMaxCompletionTokens, setUseMaxCompletionTokens] = useState(false);
+    const [reasoningEffort, setReasoningEffort] = useState('');
+    const [thinkingBudget, setThinkingBudget] = useState(0);
     const [isDefault, setIsDefault] = useState(false);
 
     // Azure-specific fields
@@ -104,6 +108,8 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
         setApiKey('');
         setMaxTokens(16384);
         setUseMaxCompletionTokens(false);
+        setReasoningEffort('');
+        setThinkingBudget(0);
         setIsDefault(false);
         setAzureEndpoint('');
         setAzureDeployment('');
@@ -136,7 +142,7 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
             const res = await fetch('/api/models', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: name.trim(), provider, model: finalModel, baseUrl: finalBaseUrl, apiKey: apiKey || undefined, maxTokens, useMaxCompletionTokens: finalUseMaxCompletionTokens, isDefault }),
+                body: JSON.stringify({ name: name.trim(), provider, model: finalModel, baseUrl: finalBaseUrl, apiKey: apiKey || undefined, maxTokens, useMaxCompletionTokens: finalUseMaxCompletionTokens, isDefault, reasoningEffort: reasoningEffort || undefined, thinkingBudget: thinkingBudget || undefined }),
             });
             if (res.ok) {
                 resetForm();
@@ -308,6 +314,39 @@ export const ModelsTab: React.FC<ModelsTabProps> = ({ isOpen }) => {
                             />
                             Use `max_completion_tokens` instead of `max_tokens`
                         </label>
+                    )}
+                    {(provider === 'openai' || provider === 'azure' || provider === 'custom') && (
+                        <div>
+                            <label className="block text-xs text-[var(--text-muted)] mb-1">Reasoning Effort</label>
+                            <div className="relative">
+                                <select
+                                    value={reasoningEffort}
+                                    onChange={(e) => setReasoningEffort(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] focus:outline-none focus:border-[var(--accent)]/50 appearance-none"
+                                >
+                                    <option value="">None (default)</option>
+                                    <option value="low">Low</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="high">High</option>
+                                </select>
+                                <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" />
+                            </div>
+                        </div>
+                    )}
+                    {provider === 'anthropic' && (
+                        <div>
+                            <label className="block text-xs text-[var(--text-muted)] mb-1">
+                                Extended Thinking Budget <span className="text-[var(--text-muted)]">(min 1024, 0 = off)</span>
+                            </label>
+                            <input
+                                type="number"
+                                value={thinkingBudget}
+                                onChange={(e) => setThinkingBudget(parseInt(e.target.value) || 0)}
+                                min={0}
+                                placeholder="0"
+                                className="w-full px-2.5 py-1.5 text-sm bg-[var(--bg-input)] border border-[var(--border)] rounded-md text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
+                            />
+                        </div>
                     )}
                     <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
                         <input

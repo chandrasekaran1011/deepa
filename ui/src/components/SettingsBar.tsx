@@ -5,6 +5,7 @@ interface ServerStatus {
     model: string;
     provider: string;
     autonomy: string;
+    mode: string;
     cwd: string;
 }
 
