@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronUp, Settings } from 'lucide-react';
+import type { TokenUsage } from '../hooks/useAgent';
 
 interface ModelInfo {
     name: string;
@@ -12,14 +13,17 @@ interface ServerStatus {
     model: string;
     provider: string;
     autonomy: string;
+    mode: string;
+    reasoning: string;
 }
 
 interface BottomControlsProps {
     onToggleSettings?: () => void;
     refreshKey?: number;
+    tokenUsage?: TokenUsage;
 }
 
-export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings, refreshKey }) => {
+export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings, refreshKey, tokenUsage }) => {
     const [models, setModels] = useState<ModelInfo[]>([]);
     const [status, setStatus] = useState<ServerStatus | null>(null);
     const [showModelDropdown, setShowModelDropdown] = useState(false);
@@ -84,7 +88,39 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
         }
     };
 
+    const setMode = async (mode: string) => {
+        try {
+            const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode }),
+            });
+            if (res.ok) {
+                await fetchStatus();
+            }
+        } catch {
+            // ignore
+        }
+    };
+
+    const setReasoning = async (level: string) => {
+        try {
+            const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reasoning: level }),
+            });
+            if (res.ok) {
+                await fetchStatus();
+            }
+        } catch {
+            // ignore
+        }
+    };
+
     if (!status) return null;
+
+    const totalTokens = tokenUsage ? tokenUsage.totalPromptTokens + tokenUsage.totalCompletionTokens : 0;
 
     return (
         <div className="flex items-center justify-center gap-3 mt-1.5 text-xs">
@@ -119,6 +155,23 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
                 )}
             </div>
 
+            {/* Mode toggle */}
+            <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden">
+                {['chat', 'plan', 'exec'].map((m) => (
+                    <button
+                        key={m}
+                        onClick={() => setMode(m)}
+                        className={`px-2 py-1 transition-colors ${
+                            status.mode === m
+                                ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
+                                : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                        }`}
+                    >
+                        {m}
+                    </button>
+                ))}
+            </div>
+
             {/* Autonomy toggle */}
             <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden">
                 {['low', 'medium', 'high'].map((level) => (
@@ -135,6 +188,31 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
                     </button>
                 ))}
             </div>
+
+            {/* Reasoning toggle */}
+            <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden" title="Reasoning effort">
+                {['off', 'low', 'medium', 'high'].map((level) => (
+                    <button
+                        key={level}
+                        onClick={() => setReasoning(level)}
+                        className={`px-2 py-1 transition-colors ${
+                            status.reasoning === level
+                                ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
+                                : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                        }`}
+                        title={`Reasoning: ${level}`}
+                    >
+                        {level}
+                    </button>
+                ))}
+            </div>
+
+            {/* Token usage */}
+            {totalTokens > 0 && (
+                <span className="text-[var(--text-muted)]" title={`Prompt: ${tokenUsage!.totalPromptTokens.toLocaleString()} · Completion: ${tokenUsage!.totalCompletionTokens.toLocaleString()}`}>
+                    {totalTokens.toLocaleString()} tokens
+                </span>
+            )}
 
             {/* Settings gear */}
             {onToggleSettings && (
