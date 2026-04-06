@@ -92,6 +92,15 @@ export interface ToolContext {
     spawnDepth?: number;
     /** Abort signal propagated from the parent — subagents should respect this */
     signal?: AbortSignal;
+    /** Hooks config — loaded once per session, passed through context */
+    hooksConfig?: import('./hooks/index.js').HooksConfig;
+    /** Denial counter — tracks consecutive user denials for autonomy downgrade */
+    denialTracker?: DenialTracker;
+}
+
+export interface DenialTracker {
+    count: number;
+    onDenial: () => void;
 }
 
 // ────────────────── Config ──────────────────
