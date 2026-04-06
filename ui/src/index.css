@@ -1,9 +1,11 @@
 @import "tailwindcss";
 
-:root {
+/* ─── Dark theme (default) ─── */
+:root, [data-theme="dark"] {
   --bg: #0f1117;
   --bg-card: #1a1b26;
   --bg-input: #1e2030;
+  --bg-hover: #252736;
   --text: #e1e2e8;
   --text-secondary: #9ca0b0;
   --text-muted: #565a6e;
@@ -12,6 +14,46 @@
   --red: #f7768e;
   --yellow: #e0af68;
   --border: #2a2d3d;
+  --shadow: rgba(0, 0, 0, 0.3);
+  color-scheme: dark;
+}
+
+/* ─── Light theme ─── */
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-card: #f4f5f7;
+  --bg-input: #eef0f4;
+  --bg-hover: #e8eaef;
+  --text: #1a1c23;
+  --text-secondary: #4b5060;
+  --text-muted: #8b90a0;
+  --accent: #4a7aef;
+  --green: #2da87a;
+  --red: #e0516b;
+  --yellow: #c08b30;
+  --border: #d5d8e0;
+  --shadow: rgba(0, 0, 0, 0.08);
+  color-scheme: light;
+}
+
+/* ─── Auto (follows OS preference) ─── */
+@media (prefers-color-scheme: light) {
+  [data-theme="auto"] {
+    --bg: #ffffff;
+    --bg-card: #f4f5f7;
+    --bg-input: #eef0f4;
+    --bg-hover: #e8eaef;
+    --text: #1a1c23;
+    --text-secondary: #4b5060;
+    --text-muted: #8b90a0;
+    --accent: #4a7aef;
+    --green: #2da87a;
+    --red: #e0516b;
+    --yellow: #c08b30;
+    --border: #d5d8e0;
+    --shadow: rgba(0, 0, 0, 0.08);
+    color-scheme: light;
+  }
 }
 
 body {
@@ -20,6 +62,7 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   margin: 0;
   padding: 0;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Blinking cursor for streaming */
