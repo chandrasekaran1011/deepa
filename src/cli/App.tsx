@@ -229,10 +229,13 @@ export function App(props: AppProps) {
     return (
         <Box flexDirection="column" width="100%">
             <Box marginBottom={1}>
-                <Text bold color="cyan">Deepa CLI (Ink UI)</Text>
-                <Text dimColor>  {mode} · {autonomy}</Text>
+                <Text bold color="cyan">Deepa</Text>
+                <Text dimColor>{'  '}</Text>
+                <Text color="blue">mode:</Text><Text bold color="cyan">{mode}</Text>
+                <Text dimColor>{'  '}</Text>
+                <Text color="blue">autonomy:</Text><Text bold color={autonomy === 'high' ? 'red' : autonomy === 'medium' ? 'yellow' : 'green'}>{autonomy}</Text>
                 {tokenUsage.totalPrompt > 0 && (
-                    <Text dimColor>  · tokens: {tokenUsage.totalPrompt + tokenUsage.totalCompletion}</Text>
+                    <><Text dimColor>{'  '}</Text><Text dimColor>tokens: {(tokenUsage.totalPrompt + tokenUsage.totalCompletion).toLocaleString()}</Text></>
                 )}
             </Box>
 
@@ -261,7 +264,10 @@ export function App(props: AppProps) {
             ) : null}
 
             <Box marginTop={1}>
-                <Text dimColor>(Press ESC to cancel, Ctrl+V to paste image, Ctrl+C to exit)</Text>
+                <Text dimColor>ESC</Text><Text color="gray"> cancel  </Text>
+                <Text dimColor>Ctrl+V</Text><Text color="gray"> paste  </Text>
+                <Text dimColor>Ctrl+C</Text><Text color="gray"> exit  </Text>
+                <Text dimColor>/help</Text><Text color="gray"> commands</Text>
             </Box>
         </Box>
     );

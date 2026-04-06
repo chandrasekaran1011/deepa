@@ -184,6 +184,14 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
     // Assistant message
     return (
         <div className="py-1">
+            {/* Assistant header */}
+            <div className="flex items-center gap-2 px-2 mb-1.5 mt-3">
+                <div className="w-6 h-6 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0">
+                    <Bot size={13} className="text-[var(--accent)]" />
+                </div>
+                <span className="text-xs font-semibold text-[var(--accent)] uppercase tracking-wide">Deepa</span>
+            </div>
+
             {/* Tool calls — shown as flat lines, with only the latest todo card visible */}
             {message.toolCalls && message.toolCalls.length > 0 && (() => {
                 const lastTodoIdx = (() => {
@@ -194,7 +202,7 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
                 })();
 
                 return (
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 ml-8">
                         {message.toolCalls!.map((call, idx) => {
                             if (call.name === 'todo' && idx !== lastTodoIdx) return null;
                             return <ToolLine key={call.id} call={call} />;
@@ -205,7 +213,7 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
 
             {/* Assistant text with markdown */}
             {message.content && (
-                <div className="py-2 px-2">
+                <div className="py-2 px-2 ml-8">
                     <div className={`prose-dark text-sm leading-relaxed ${message.isStreaming ? 'streaming-cursor' : ''}`}>
                         <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
@@ -219,19 +227,15 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
 
             {/* Streaming with no content yet */}
             {!message.content && message.isStreaming && !message.toolCalls?.length && (
-                <div className="flex items-center gap-3 py-2 px-2">
+                <div className="flex items-center gap-3 py-2 px-2 ml-8">
                     <span className="spinner text-[var(--text-muted)] text-sm">✱</span>
                     <span className="text-[var(--text-muted)] text-sm">Thinking...</span>
                 </div>
             )}
 
-            {/* End-of-response indicator — shown when assistant is done and has content */}
+            {/* End-of-response separator */}
             {!message.isStreaming && message.content && (
-                <div className="mx-2 mt-1 mb-2 flex items-center gap-2">
-                    <div className="flex-1 border-b border-[var(--border)]/30" />
-                    <span className="text-[10px] text-[var(--text-muted)]/60 shrink-0">◆</span>
-                    <div className="flex-1 border-b border-[var(--border)]/30" />
-                </div>
+                <div className="mx-2 mt-2 mb-2 border-b border-[var(--border)]/30" />
             )}
         </div>
     );
