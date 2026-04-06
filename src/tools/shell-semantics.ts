@@ -77,7 +77,56 @@ export function interpretCommandResult(
     return semantic(exitCode, stdout, stderr);
 }
 
-/** 
+// ─── Dangerous pattern detection ───
+
+interface DangerousPattern {
+    pattern: RegExp;
+    message: string;
+    riskLevel: 'warn' | 'block';
+}
+
+const DANGEROUS_PATTERNS: DangerousPattern[] = [
+    // Recursive deletion of system root or home
+    { pattern: /\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\s+(\/|~\/?\s*$|\$HOME\/?\s*$)/, message: 'Recursive deletion of root or home directory', riskLevel: 'block' },
+    { pattern: /\brm\s+-rf\s+\//, message: 'Recursive deletion starting at root', riskLevel: 'block' },
+    // Curl/wget piped to shell — remote code execution
+    { pattern: /\b(curl|wget)\b[^|]*\|\s*(bash|sh|zsh|fish|python3?|node|ruby|perl)\b/, message: 'Downloading and executing remote code via pipe', riskLevel: 'block' },
+    // Fork bomb
+    { pattern: /:\(\s*\)\s*\{.*:\|:.*\}/, message: 'Fork bomb pattern detected', riskLevel: 'block' },
+    // chmod 777 on root or system dirs
+    { pattern: /\bchmod\s+(-R\s+)?777\s+(\/|\/etc|\/usr|\/bin|\/sbin|\/lib)/, message: 'chmod 777 on system directory', riskLevel: 'block' },
+    // dd writing to raw disk devices
+    { pattern: /\bdd\b.*\bof=\/dev\/(sd[a-z]|hd[a-z]|nvme|disk)\b(?!p)/, message: 'Writing directly to raw disk device', riskLevel: 'block' },
+    // Format/wipe disk
+    { pattern: /\b(mkfs|shred|wipefs)\b.*\/dev\/(sd[a-z]|hd[a-z]|nvme|disk)\b/, message: 'Disk format or wipe operation', riskLevel: 'block' },
+    // Python/node one-liners that exec/eval remote content
+    { pattern: /\b(python3?|node)\b.*\bexec\s*\(\s*__import__\s*\(/, message: 'Executing dynamically imported remote code', riskLevel: 'block' },
+    // sudo with password on stdin
+    { pattern: /echo\s+['"][^'"]*['"]\s*\|\s*sudo\s+-S/, message: 'Passing password to sudo via stdin', riskLevel: 'warn' },
+    // Truncating important system files
+    { pattern: />\s*(\/etc\/passwd|\/etc\/shadow|\/etc\/hosts|\/etc\/sudoers)/, message: 'Truncating a critical system file', riskLevel: 'block' },
+];
+
+export interface DangerCheckResult {
+    isDangerous: boolean;
+    riskLevel?: 'warn' | 'block';
+    message?: string;
+}
+
+/**
+ * Check a shell command for dangerous patterns.
+ * Returns { isDangerous: false } if safe, or { isDangerous: true, riskLevel, message } if dangerous.
+ */
+export function checkDangerousCommand(command: string): DangerCheckResult {
+    for (const dp of DANGEROUS_PATTERNS) {
+        if (dp.pattern.test(command)) {
+            return { isDangerous: true, riskLevel: dp.riskLevel, message: dp.message };
+        }
+    }
+    return { isDangerous: false };
+}
+
+/**
  * Detect standalone sleep patterns that cause loops to stall unnecessarily.
  */
 export function detectBlockedSleepPattern(command: string): string | null {

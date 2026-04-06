@@ -2,8 +2,12 @@
 
 import { z, ZodSchema } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import type { ToolDefinition, ToolResult, ToolContext } from '../types.js';
 import { requiresConfirmation } from '../agent/autonomy.js';
+import { runHooks } from '../hooks/index.js';
 
 /** Max characters returned by any single tool call to protect context window */
 const MAX_TOOL_OUTPUT = 8_000;
@@ -129,14 +133,35 @@ export class ToolRegistry {
             }
         }
 
+        // ─── PreToolUse hooks ───
+        if (context.hooksConfig) {
+            const hookEnv = {
+                tool_name: name,
+                tool_input: JSON.stringify(parsed.data),
+                cwd: context.cwd,
+            };
+            const hookResult = runHooks('PreToolUse', context.hooksConfig, hookEnv, context.cwd);
+            if (hookResult.block) {
+                return {
+                    content: `Tool blocked by PreToolUse hook: ${hookResult.errorMessage ?? name}`,
+                    isError: true,
+                };
+            }
+            // Prepend hook context to assist the model — done via tool result injection
+            // (caller in loop.ts will see this in the tool result)
+        }
+
         // Check autonomy using the shared requiresConfirmation function
         if (requiresConfirmation(context.autonomy, tool.riskLevel)) {
             const response = await context.confirmAction(
                 `Tool "${name}" wants to execute with params: ${JSON.stringify(parsed.data, null, 2)}`,
             );
             if (response === false) {
+                // Denial tracking — increment counter and possibly downgrade autonomy
+                context.denialTracker?.onDenial();
                 return { content: 'Action cancelled by user.', isError: true };
             } else if (typeof response === 'string') {
+                context.denialTracker?.onDenial();
                 return { content: `Action denied. User provided feedback: "${response}"`, isError: true };
             }
         }
@@ -149,7 +174,47 @@ export class ToolRegistry {
             return { content: `Error executing tool "${name}": ${errorMsg}`, isError: true };
         }
 
+        // ─── PostToolUse hooks ───
+        if (context.hooksConfig) {
+            const hookEnv = {
+                tool_name: name,
+                tool_input: JSON.stringify(parsed.data),
+                tool_result: JSON.stringify({ content: result.content.slice(0, 500), isError: result.isError }),
+                cwd: context.cwd,
+            };
+            const hookResult = runHooks('PostToolUse', context.hooksConfig, hookEnv, context.cwd);
+            if (hookResult.contextMessage) {
+                result = {
+                    ...result,
+                    content: `${result.content}\n\n[Hook context]: ${hookResult.contextMessage}`,
+                };
+            }
+        }
+
+        // ─── Tool result disk offload for large results ───
+        const OFFLOAD_THRESHOLD = 4_000;
         const limit = tool.maxOutputChars ?? MAX_TOOL_OUTPUT;
+
+        // Only offload results that are large but still within the truncation limit.
+        // Results exceeding `limit` fall through to normal truncation below.
+        if (result.content.length > OFFLOAD_THRESHOLD && result.content.length <= limit && !result.isError) {
+            try {
+                const offloadDir = join(tmpdir(), '.deepa', 'tool-results');
+                if (!existsSync(offloadDir)) mkdirSync(offloadDir, { recursive: true });
+                const offloadFile = join(offloadDir, `${name}_${Date.now()}.txt`);
+                writeFileSync(offloadFile, result.content, 'utf-8');
+
+                const preview = result.content.slice(0, 500);
+                const total = result.content.length;
+                result = {
+                    ...result,
+                    content: `${preview}\n\n[Full result (${Math.round(total / 1024)}KB) saved to: ${offloadFile}. Use file_read to access the complete output.]`,
+                };
+            } catch {
+                // Fallback to normal truncation below
+            }
+        }
+
         // Truncate oversized tool output to protect the LLM context window
         if (result.content.length > limit) {
             const truncated = result.content.slice(0, limit);
