@@ -7,7 +7,7 @@ import { homedir } from 'os';
 import multer from 'multer';
 import { runAgentLoop } from '../agent/loop.js';
 import { CLIFlags, loadConfig } from '../config.js';
-import { loadLatestSession, createSession, saveSession, loadSession, listSessions, Session } from '../context/history.js';
+import { loadLatestSession, createSession, saveSession, loadSession, appendMessages, listSessions, registerSessionCleanup, Session } from '../context/history.js';
 import { loadAgentsMd } from '../context/agents-md.js';
 
 import { createProvider } from '../providers/registry.js';
@@ -158,6 +158,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
     // Session and context
     let session: Session = loadLatestSession(cwd) || createSession(cwd);
     let conversationHistory: Message[] = session.messages;
+    registerSessionCleanup(session);
 
     const agentsMdContent = loadAgentsMd(cwd);
 
@@ -461,15 +462,15 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
     // ─── Session endpoints ───
 
     app.get('/api/sessions', (_req, res) => {
-        const sessions = listSessions(50);
+        const sessions = listSessions(cwd, 50);
         res.json({
             sessions: sessions.map(s => ({
                 id: s.id,
                 createdAt: s.createdAt,
                 updatedAt: s.updatedAt,
                 cwd: s.cwd,
-                messageCount: s.messages.length,
-                preview: getSessionPreview(s),
+                messageCount: s.messageCount,
+                preview: s.title,
             })),
             currentSessionId: session.id,
         });
@@ -486,7 +487,7 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
     });
 
     app.post('/api/sessions/:id/load', (req, res) => {
-        const loaded = loadSession(req.params.id);
+        const loaded = loadSession(req.params.id, cwd);
         if (!loaded) {
             return res.status(404).json({ error: 'Session not found' });
         }
@@ -623,10 +624,11 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
                     });
                 },
                 onProgress: (msgs) => {
-                    // Incremental save — persist after each tool round so progress survives crashes
-                    conversationHistory = msgs;
+                    // Incremental append — only write new messages since last save
+                    const newMessages = msgs.slice(session.messages.length);
                     session.messages = msgs;
-                    saveSession(session);
+                    conversationHistory = msgs;
+                    appendMessages(session, newMessages);
                 },
             });
 
