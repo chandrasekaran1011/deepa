@@ -11,7 +11,7 @@ import { ToolRegistry } from './tools/registry.js';
 import { runAgentLoop } from './agent/loop.js';
 import { loadAgentsMd } from './context/agents-md.js';
 import { loadPrimaryMemoryIndex } from './context/memory.js';
-import { createSession, saveSession, loadLatestSession, type Session } from './context/history.js';
+import { createSession, saveSession, loadLatestSession, appendMessages, registerSessionCleanup, type Session } from './context/history.js';
 import { compressConversationHistory } from './context/compression.js';
 import { bootInkApp } from './cli/boot.js';
 import { loadSkills } from './plugins/skills.js';
@@ -357,8 +357,8 @@ async function addModelInteractive(): Promise<void> {
         }
     }
 
-    const maxTokensStr = await promptUser('  Max tokens [16384]: ');
-    const maxTokens = maxTokensStr ? parseInt(maxTokensStr) : 16384;
+    const maxTokensStr = await promptUser('  Max tokens [8000]: ');
+    const maxTokens = maxTokensStr ? parseInt(maxTokensStr) : 8000;
 
     let useMaxCompletionTokens = false;
     if (provider === 'azure') {
@@ -514,6 +514,9 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
         session = createSession(cwd);
     }
 
+    // Register graceful shutdown flush (saves on SIGINT/SIGTERM/exit)
+    registerSessionCleanup(session);
+
     // Print header
     const totalMcpTools = mcpConnections.reduce((sum, c) => sum + c.tools.length, 0);
     printHeader();
@@ -552,16 +555,19 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
             initialPrompt,
             mcpConnections,
             onSessionSave: (messages) => {
+                // Append only new messages since last save (CC-style incremental writes)
+                const prevCount = session.messages.length;
+                const newMessages = messages.slice(prevCount);
                 session.messages = messages;
-                saveSession(session);
+                appendMessages(session, newMessages);
             },
         });
     } catch (e) {
         printError(`Fatal UI error: ${e}`);
     }
 
-    // Cleanup when Ink exits
-    saveSession(session);
+    // Cleanup when Ink exits — session already flushed by registerSessionCleanup on exit signals
+    saveSession(session); // Final full-sync write for clean exits
     await disconnectMCPServers(mcpConnections);
     killBackgroundProcesses();
 }
