@@ -86,21 +86,46 @@ export function extractImagePaths(input: string): { text: string; paths: string[
 
 /**
  * Check if the system clipboard contains an image.
- * Currently macOS only (uses osascript).
+ * Supports macOS (osascript), Windows (PowerShell), and Linux (xclip/wl-paste).
  */
 export function clipboardHasImage(): boolean {
-    if (platform() !== 'darwin') return false;
+    const os = platform();
     try {
-        const result = execSync(
-            `osascript -e 'try
-                set imgData to the clipboard as «class PNGf»
-                return "yes"
-            on error
-                return "no"
-            end try'`,
-            { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] },
-        ).trim();
-        return result === 'yes';
+        if (os === 'darwin') {
+            const result = execSync(
+                `osascript -e 'try
+                    set imgData to the clipboard as «class PNGf»
+                    return "yes"
+                on error
+                    return "no"
+                end try'`,
+                { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] },
+            ).trim();
+            return result === 'yes';
+        } else if (os === 'win32') {
+            const result = execSync(
+                'powershell -NoProfile -Command "if (Get-Clipboard -Format Image) { Write-Output yes } else { Write-Output no }"',
+                { encoding: 'utf-8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] },
+            ).trim();
+            return result === 'yes';
+        } else {
+            // Linux: try wl-paste (Wayland) then xclip (X11)
+            try {
+                execSync('wl-paste --list-types 2>/dev/null | grep -q image/', {
+                    timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'],
+                });
+                return true;
+            } catch {
+                try {
+                    execSync('xclip -selection clipboard -t TARGETS -o 2>/dev/null | grep -q image/png', {
+                        timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'],
+                    });
+                    return true;
+                } catch {
+                    return false;
+                }
+            }
+        }
     } catch {
         return false;
     }
@@ -110,11 +135,10 @@ export function clipboardHasImage(): boolean {
  * Read an image from the system clipboard and return as ImageContent.
  * Saves clipboard image to a temp file, reads as base64, then cleans up.
  * Returns null if no image is on the clipboard.
- * Currently macOS only.
+ * Supports macOS, Windows, and Linux.
  */
 export function loadImageFromClipboard(): { image: ImageContent; fileName: string } | null {
-    if (platform() !== 'darwin') return null;
-
+    const os = platform();
     const tmpDir = join(tmpdir(), 'deepa-clipboard');
     if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
 
@@ -122,22 +146,40 @@ export function loadImageFromClipboard(): { image: ImageContent; fileName: strin
     const tmpFile = join(tmpDir, `clipboard-${timestamp}.png`);
 
     try {
-        // Use osascript to write clipboard PNG data to a temp file
-        execSync(
-            `osascript -e '
-                set tmpFile to POSIX file "${tmpFile}"
-                try
-                    set imgData to the clipboard as «class PNGf»
-                    set fp to open for access tmpFile with write permission
-                    write imgData to fp
-                    close access fp
-                    return "ok"
-                on error errMsg
-                    return "error: " & errMsg
-                end try
-            '`,
-            { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] },
-        );
+        if (os === 'darwin') {
+            execSync(
+                `osascript -e '
+                    set tmpFile to POSIX file "${tmpFile}"
+                    try
+                        set imgData to the clipboard as «class PNGf»
+                        set fp to open for access tmpFile with write permission
+                        write imgData to fp
+                        close access fp
+                        return "ok"
+                    on error errMsg
+                        return "error: " & errMsg
+                    end try
+                '`,
+                { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] },
+            );
+        } else if (os === 'win32') {
+            // PowerShell: save clipboard image as PNG
+            execSync(
+                `powershell -NoProfile -Command "$img = Get-Clipboard -Format Image; if ($img) { $img.Save('${tmpFile.replace(/'/g, "''")}', [System.Drawing.Imaging.ImageFormat]::Png) }"`,
+                { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'] },
+            );
+        } else {
+            // Linux: try wl-paste (Wayland) then xclip (X11)
+            try {
+                execSync(`wl-paste --type image/png > "${tmpFile}" 2>/dev/null`, {
+                    timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'],
+                });
+            } catch {
+                execSync(`xclip -selection clipboard -t image/png -o > "${tmpFile}" 2>/dev/null`, {
+                    timeout: 5000, stdio: ['pipe', 'pipe', 'ignore'],
+                });
+            }
+        }
 
         if (!existsSync(tmpFile)) return null;
 
