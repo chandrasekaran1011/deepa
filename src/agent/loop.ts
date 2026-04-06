@@ -1,11 +1,12 @@
 // ─── Core agentic loop ───
 // think → act → verify, streaming output
 
-import type { Message, MessageContent, ToolContext, ToolCallContent, ToolResultContent, DeepaConfig } from '../types.js';
+import type { Message, MessageContent, ToolContext, ToolCallContent, ToolResultContent, DeepaConfig, DenialTracker } from '../types.js';
 import type { LLMProvider } from '../providers/base.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { buildSystemPrompt } from './prompts.js';
 import { compressConversationHistory } from '../context/compression.js';
+import { loadHooksConfig, runHooks } from '../hooks/index.js';
 import chalk from 'chalk';
 
 export interface LoopOptions {
@@ -145,6 +146,29 @@ export async function runAgentLoop(
         process.stderr.write(chalk.dim(`[loop] history: ${history.length} msgs, ~${(historySize / 1024).toFixed(1)} KB | total messages: ${messages.length} \n`));
     }
 
+    // Load hooks config (global + project-level)
+    const hooksConfig = loadHooksConfig(cwd);
+
+    // Fire SessionStart hooks
+    runHooks('SessionStart', hooksConfig, { cwd, session_id: `${Date.now()}` }, cwd);
+
+    // Denial tracker — downgrade autonomy after 3 consecutive denials
+    const DENIAL_THRESHOLD = 3;
+    const denialTracker: DenialTracker = {
+        count: 0,
+        onDenial() {
+            this.count++;
+            if (this.count >= DENIAL_THRESHOLD && config.autonomy !== 'low') {
+                const prev = config.autonomy;
+                config.autonomy = config.autonomy === 'high' ? 'medium' : 'low';
+                process.stderr.write(chalk.yellow(
+                    `\n⚠ ${DENIAL_THRESHOLD} consecutive denials — autonomy downgraded from ${prev} to ${config.autonomy}\n`,
+                ));
+                this.count = 0; // Reset after downgrade
+            }
+        },
+    };
+
     const toolContext: ToolContext = {
         cwd,
         get autonomy() { return config.autonomy; },
@@ -153,6 +177,8 @@ export async function runAgentLoop(
         get messages() { return messages; },
         spawnDepth,
         signal,
+        hooksConfig,
+        denialTracker,
         log: (msg) => {
             if (config.verbose) {
                 process.stderr.write(chalk.dim(msg) + '\n');
