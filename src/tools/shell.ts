@@ -7,7 +7,7 @@ import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { resolvePath } from './resolve-path.js';
-import { interpretCommandResult, detectBlockedSleepPattern } from './shell-semantics.js';
+import { interpretCommandResult, detectBlockedSleepPattern, checkDangerousCommand } from './shell-semantics.js';
 import { z } from 'zod';
 import type { Tool } from './registry.js';
 import type { ToolResult, ToolContext } from '../types.js';
@@ -34,7 +34,12 @@ export function killBackgroundProcesses(): void {
             }
         } catch {
             try {
-                process.kill(pid); // Fallback
+                if (process.platform === 'win32') {
+                    // Windows fallback: kill single process
+                    execSync(`taskkill /PID ${pid} /F`, { stdio: 'ignore' });
+                } else {
+                    process.kill(pid);
+                }
             } catch {
                 // Ignore if process is already dead
             }
@@ -227,6 +232,22 @@ export const shellTool: Tool = {
 
     async validateInput(params: unknown, context: ToolContext) {
         const { command, background } = params as z.infer<typeof parameters>;
+
+        // Dangerous pattern detection
+        const danger = checkDangerousCommand(command);
+        if (danger.isDangerous) {
+            if (danger.riskLevel === 'block') {
+                return { valid: false, message: `Blocked dangerous command — ${danger.message}. Command: ${command}` };
+            }
+            // 'warn' level — require explicit confirmation regardless of autonomy
+            const confirmed = await context.confirmAction(
+                `⚠️ Potentially dangerous command detected — ${danger.message}\n\nCommand: ${command}\n\nProceed?`,
+            );
+            if (!confirmed) {
+                return { valid: false, message: `Command rejected by user — ${danger.message}` };
+            }
+        }
+
         if (!background) {
              const sleepCmd = detectBlockedSleepPattern(command);
              if (sleepCmd) {
@@ -243,7 +264,7 @@ export const shellTool: Tool = {
         // Detect inline scripts and auto-convert to temp files
         const inline = detectInlineScript(command);
         if (inline) {
-            const tmpDir = join(workDir, '.deepa', 'tmp');
+            const tmpDir = join(tmpdir(), '.deepa', 'tmp');
             if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
 
             const tmpFile = join(tmpDir, `_inline_${Date.now()}${inline.extension}`);
