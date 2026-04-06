@@ -44,6 +44,10 @@ export const searchFilesTool: Tool = {
 
             args.push(pattern, absPath);
         } catch {
+            context.log('[search_files] fd not found — falling back to find. ' +
+                (isWin ? 'Install with: scoop install fd  or  choco install fd'
+                    : process.platform === 'darwin' ? 'Install with: brew install fd'
+                    : 'Install with: apt install fd-find  or  dnf install fd-find'));
             cmd = 'find';
             args = [absPath];
             if (maxDepth) args.push('-maxdepth', String(maxDepth));
