@@ -1,5 +1,6 @@
 import type { Message } from '../types.js';
 import type { LLMProvider } from '../providers/base.js';
+import { clearMemoryCache } from './memory.js';
 
 /**
  * Condenses the tail end of the conversation history to protect the context window from token bloat.
@@ -62,6 +63,10 @@ ${JSON.stringify(messagesToCompress, null, 2)}
         for await (const chunk of stream) {
             if (chunk.type === 'text') summary += chunk.text;
         }
+
+        // Clear memory cache so next turn re-reads from disk
+        // (memories may have been saved during the compressed turns)
+        clearMemoryCache();
 
         const compressedMessage: Message = {
             role: 'user',
