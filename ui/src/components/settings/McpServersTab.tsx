@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Terminal, Globe, X, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Terminal, Globe, X, AlertCircle, ToggleLeft, ToggleRight } from 'lucide-react';
 
 interface McpServer {
     name: string;
@@ -7,6 +7,7 @@ interface McpServer {
     args?: string[];
     url?: string;
     transport?: string;
+    enabled?: boolean;
 }
 
 interface McpServersTabProps {
@@ -110,6 +111,14 @@ export const McpServersTab: React.FC<McpServersTabProps> = ({ isOpen }) => {
                 setConfirmDelete(null);
                 await fetchServers();
             }
+        } catch { /* ignore */ }
+    };
+
+    const handleToggleEnabled = async (name: string, currentlyEnabled: boolean) => {
+        const action = currentlyEnabled ? 'disable' : 'enable';
+        try {
+            const res = await fetch(`/api/mcp/${encodeURIComponent(name)}/${action}`, { method: 'POST' });
+            if (res.ok) await fetchServers();
         } catch { /* ignore */ }
     };
 
@@ -252,10 +261,15 @@ export const McpServersTab: React.FC<McpServersTabProps> = ({ isOpen }) => {
             ) : (
                 servers.map((s) => {
                     const isRemote = !!s.url;
+                    const isEnabled = s.enabled !== false;
                     return (
                         <div
                             key={s.name}
-                            className="px-3 py-2.5 rounded-lg bg-[var(--bg-input)] border border-[var(--border)] group"
+                            className={`px-3 py-2.5 rounded-lg border group transition-opacity ${
+                                isEnabled
+                                    ? 'bg-[var(--bg-input)] border-[var(--border)]'
+                                    : 'bg-[var(--bg-input)]/50 border-[var(--border)]/50 opacity-60'
+                            }`}
                         >
                             <div className="flex items-center justify-between mb-1">
                                 <div className="flex items-center gap-2">
@@ -272,14 +286,32 @@ export const McpServersTab: React.FC<McpServersTabProps> = ({ isOpen }) => {
                                     }`}>
                                         {isRemote ? (s.transport || 'http').toUpperCase() : 'stdio'}
                                     </span>
+                                    {!isEnabled && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--text-muted)]/10 text-[var(--text-muted)]">
+                                            disabled
+                                        </span>
+                                    )}
                                 </div>
-                                <button
-                                    onClick={() => setConfirmDelete(s.name)}
-                                    className="p-1 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 hover:text-[var(--red)] transition-all"
-                                    title="Delete server"
-                                >
-                                    <Trash2 size={12} />
-                                </button>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                    <button
+                                        onClick={() => handleToggleEnabled(s.name, isEnabled)}
+                                        className={`p-1 transition-colors ${
+                                            isEnabled
+                                                ? 'text-[var(--green)] hover:text-[var(--text-muted)]'
+                                                : 'text-[var(--text-muted)] hover:text-[var(--green)]'
+                                        }`}
+                                        title={isEnabled ? 'Disable server' : 'Enable server'}
+                                    >
+                                        {isEnabled ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+                                    </button>
+                                    <button
+                                        onClick={() => setConfirmDelete(s.name)}
+                                        className="p-1 text-[var(--text-muted)] hover:text-[var(--red)] transition-colors"
+                                        title="Delete server"
+                                    >
+                                        <Trash2 size={12} />
+                                    </button>
+                                </div>
                             </div>
                             <div className="text-xs text-[var(--text-muted)] truncate">
                                 {isRemote ? s.url : `${s.command} ${(s.args || []).join(' ')}`}

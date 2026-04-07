@@ -17,7 +17,7 @@ import { UI_HTML } from './ui-html.js';
 import { createUseSkillTool } from '../tools/use-skill.js';
 import { connectMCPServers, MCPConnection } from '../mcp/client.js';
 import { listModels, getModel, addModel, removeModel, setDefaultModel, PROVIDER_PRESETS } from '../store/models.js';
-import { addMcpServer, removeMcpServer, listMcpServers } from '../store/mcp.js';
+import { addMcpServer, removeMcpServer, listMcpServers, enableMcpServer, disableMcpServer } from '../store/mcp.js';
 import { recordTokenUsage } from '../store/tokens.js';
 import chalk from 'chalk';
 import type { Message, MessageContent } from '../types.js';
@@ -377,6 +377,22 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
         const removed = removeMcpServer(req.params.name);
         if (removed) {
             res.json({ status: 'deleted' });
+        } else {
+            res.status(404).json({ error: 'Server not found' });
+        }
+    });
+
+    app.post('/api/mcp/:name/enable', (req, res) => {
+        if (enableMcpServer(req.params.name)) {
+            res.json({ status: 'ok' });
+        } else {
+            res.status(404).json({ error: 'Server not found' });
+        }
+    });
+
+    app.post('/api/mcp/:name/disable', (req, res) => {
+        if (disableMcpServer(req.params.name)) {
+            res.json({ status: 'ok' });
         } else {
             res.status(404).json({ error: 'Server not found' });
         }

@@ -128,6 +128,7 @@ export interface MCPServerConfig {
     env?: Record<string, string>;
     url?: string; // for HTTP transport
     transport?: 'stdio' | 'sse' | 'http'; // explicitly specify transport
+    enabled?: boolean; // false = skip this server at startup (default: true)
 }
 
 export interface DeepaConfig {
