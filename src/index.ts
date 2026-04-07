@@ -23,7 +23,7 @@ import {
     addModel, removeModel, listModels, setDefaultModel, getModel,
     PROVIDER_PRESETS, type StoredModel,
 } from './store/models.js';
-import { addMcpServer, removeMcpServer, listMcpServers } from './store/mcp.js';
+import { addMcpServer, removeMcpServer, listMcpServers, enableMcpServer, disableMcpServer } from './store/mcp.js';
 import { recordTokenUsage, getTokenSummary } from './store/tokens.js';
 
 import { startUIServer } from './server/ui-server.js';
@@ -192,6 +192,28 @@ mcpCmd
     });
 
 mcpCmd
+    .command('enable <name>')
+    .description('Enable a disabled MCP server')
+    .action((name: string) => {
+        if (enableMcpServer(name)) {
+            console.log(chalk.green(`  ✓ MCP server "${name}" enabled`));
+        } else {
+            console.log(chalk.red(`  ✗ MCP server "${name}" not found`));
+        }
+    });
+
+mcpCmd
+    .command('disable <name>')
+    .description('Disable an MCP server without removing it')
+    .action((name: string) => {
+        if (disableMcpServer(name)) {
+            console.log(chalk.yellow(`  ⏸ MCP server "${name}" disabled`));
+        } else {
+            console.log(chalk.red(`  ✗ MCP server "${name}" not found`));
+        }
+    });
+
+mcpCmd
     .command('list')
     .description('List configured MCP servers')
     .action(() => {
@@ -204,7 +226,10 @@ mcpCmd
         console.log(chalk.bold('\n  MCP Servers:\n'));
         for (const name of names) {
             const s = servers[name];
-            console.log(`  ${chalk.cyan(name)}`);
+            const disabled = s.enabled === false;
+            const nameLabel = disabled ? chalk.dim(name) : chalk.cyan(name);
+            const badge = disabled ? chalk.dim(' [disabled]') : '';
+            console.log(`  ${nameLabel}${badge}`);
             if (s.url) {
                 console.log(chalk.dim(`    Remote URL: ${s.url}`));
             } else {
