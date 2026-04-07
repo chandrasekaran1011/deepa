@@ -65,9 +65,11 @@ Modes & Settings:
 Model & MCP:
   /model list    List saved model configurations
   /model use <n> Switch to a named model at runtime
-  /mcp list      List connected MCP servers
-  /mcp add <name> <cmd> [args]  Add an MCP server
-  /mcp remove <name>  Remove an MCP server
+  /mcp list                    List connected MCP servers
+  /mcp add <name> <cmd> [args] Add an MCP server
+  /mcp remove <name>           Remove an MCP server
+  /mcp enable <name>           Enable a disabled server
+  /mcp disable <name>          Disable a server
 
 Media:
   /image <path> [msg]  Attach an image file
@@ -213,9 +215,17 @@ To add or remove models, run from your terminal:
                 if (!mcpConnections || mcpConnections.length === 0) {
                     addSystemMessage('No MCP servers connected.');
                 } else {
-                    const lines = mcpConnections.map((c: any) =>
-                        `◆ ${c.name}\n   tools: ${c.tools.map((t: any) => t.name).join(', ')}`
-                    ).join('\n\n');
+                    const lines = mcpConnections.map((c: any) => {
+                        const toolNames: string[] = c.tools as string[];
+                        const regular = toolNames.filter(t => !t.includes('_list_resources') && !t.includes('_read_resource') && !t.includes('_prompt_'));
+                        const resources = toolNames.filter(t => t.includes('_list_resources') || t.includes('_read_resource'));
+                        const prompts = toolNames.filter(t => t.includes('_prompt_'));
+                        const parts = [];
+                        if (regular.length) parts.push(`tools: ${regular.join(', ')}`);
+                        if (resources.length) parts.push(`resources: ${resources.join(', ')}`);
+                        if (prompts.length) parts.push(`prompts: ${prompts.join(', ')}`);
+                        return `◆ ${c.name}\n   ${parts.join('\n   ') || '(no tools)'}`;
+                    }).join('\n\n');
                     addSystemMessage(`Connected MCP Servers:\n\n${lines}`);
                 }
             } else if (args[0] === 'add' && args[1] && args[2]) {
@@ -240,12 +250,36 @@ To add or remove models, run from your terminal:
                 } catch (err: any) {
                     addSystemMessage(`Error removing MCP server: ${err.message}`);
                 }
+            } else if (args[0] === 'disable' && args[1]) {
+                try {
+                    const { disableMcpServer } = await import('../store/mcp.js');
+                    if (disableMcpServer(args[1])) {
+                        addSystemMessage(`MCP server "${args[1]}" disabled. Restart to take effect.`);
+                    } else {
+                        addSystemMessage(`MCP server "${args[1]}" not found.`);
+                    }
+                } catch (err: any) {
+                    addSystemMessage(`Error disabling MCP server: ${err.message}`);
+                }
+            } else if (args[0] === 'enable' && args[1]) {
+                try {
+                    const { enableMcpServer } = await import('../store/mcp.js');
+                    if (enableMcpServer(args[1])) {
+                        addSystemMessage(`MCP server "${args[1]}" enabled. Restart to take effect.`);
+                    } else {
+                        addSystemMessage(`MCP server "${args[1]}" not found.`);
+                    }
+                } catch (err: any) {
+                    addSystemMessage(`Error enabling MCP server: ${err.message}`);
+                }
             } else {
                 addSystemMessage(
 `MCP Server Management:
-  /mcp list                    List connected servers
+  /mcp list                    List connected servers and tools
   /mcp add <name> <cmd> [args] Add a server config
   /mcp remove <name>           Remove a server config
+  /mcp enable <name>           Enable a disabled server
+  /mcp disable <name>          Disable a server without removing it
 
 Changes to MCP servers require a restart to take effect.`
                 );
