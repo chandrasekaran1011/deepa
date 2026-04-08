@@ -435,8 +435,8 @@ export async function startUIServer(port: number, flags: CLIFlags): Promise<void
             config.autonomy = autonomy as 'low' | 'medium' | 'high';
         }
 
-        if (mode && ['chat', 'plan', 'exec'].includes(mode)) {
-            config.mode = mode as 'chat' | 'plan' | 'exec';
+        if (mode && ['plan', 'exec'].includes(mode)) {
+            config.mode = mode as 'plan' | 'exec';
         }
 
         const { reasoning } = req.body;

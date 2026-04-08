@@ -139,17 +139,17 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
     const ThemeIcon = theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor;
 
     return (
-        <div className="flex items-center justify-center gap-2 mt-1.5 text-xs flex-wrap">
+        <div className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 mt-1.5 text-xs">
+
             {/* Model selector */}
             <div className="relative">
                 <button
                     onClick={() => setShowModelDropdown(!showModelDropdown)}
                     className="flex items-center gap-1 px-2 py-1 rounded bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:border-[var(--text-muted)] transition-colors"
                 >
-                    <span className="max-w-[150px] truncate">{status.model}</span>
+                    <span className="max-w-[80px] xs:max-w-[140px] truncate">{status.model}</span>
                     <ChevronUp size={10} />
                 </button>
-
                 {showModelDropdown && models.length > 0 && (
                     <>
                         <div className="fixed inset-0 z-10" onClick={() => setShowModelDropdown(false)} />
@@ -171,14 +171,14 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
                 )}
             </div>
 
-            {/* Separator */}
-            <span className="text-[var(--border)]">·</span>
+            {/* Separator — hidden on xs */}
+            <span className="hidden xs:inline text-[var(--border)]">·</span>
 
-            {/* Mode toggle — labeled */}
+            {/* Mode toggle */}
             <div className="flex items-center gap-1">
-                <span className="text-[var(--text-muted)] font-medium uppercase tracking-wider text-[10px]">Mode</span>
+                <span className="hidden xs:inline text-[var(--text-muted)] font-medium uppercase tracking-wider text-[10px]">Mode</span>
                 <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden">
-                    {['chat', 'plan', 'exec'].map((m) => (
+                    {['plan', 'exec'].map((m) => (
                         <button
                             key={m}
                             onClick={() => setMode(m)}
@@ -187,6 +187,7 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
                                     ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
                                     : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                             }`}
+                            title={`Mode: ${m}`}
                         >
                             {m}
                         </button>
@@ -194,53 +195,62 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
                 </div>
             </div>
 
-            <span className="text-[var(--border)]">·</span>
+            {/* Separator — hidden on xs */}
+            <span className="hidden xs:inline text-[var(--border)]">·</span>
 
-            {/* Autonomy toggle — labeled */}
+            {/* Autonomy toggle */}
             <div className="flex items-center gap-1">
-                <span className="text-[var(--text-muted)] font-medium uppercase tracking-wider text-[10px]">Autonomy</span>
+                <span className="hidden xs:inline text-[var(--text-muted)] font-medium uppercase tracking-wider text-[10px]">Autonomy</span>
                 <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden">
-                    {['low', 'medium', 'high'].map((level) => (
-                        <button
-                            key={level}
-                            onClick={() => setAutonomy(level)}
-                            className={`px-2 py-1 transition-colors ${
-                                status.autonomy === level
-                                    ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
-                                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-                            }`}
-                            title={`Autonomy: ${level} — ${level === 'low' ? 'all actions need approval' : level === 'medium' ? 'risky actions need approval' : 'minimal approvals'}`}
-                        >
-                            {level}
-                        </button>
-                    ))}
+                    {['low', 'med', 'high'].map((level) => {
+                        const fullLevel = level === 'med' ? 'medium' : level;
+                        return (
+                            <button
+                                key={level}
+                                onClick={() => setAutonomy(fullLevel)}
+                                className={`px-2 py-1 transition-colors ${
+                                    status.autonomy === fullLevel
+                                        ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
+                                        : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                                }`}
+                                title={`Autonomy: ${fullLevel} — ${fullLevel === 'low' ? 'all actions need approval' : fullLevel === 'medium' ? 'risky actions need approval' : 'minimal approvals'}`}
+                            >
+                                {level}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 
-            <span className="text-[var(--border)]">·</span>
+            {/* Separator — hidden on xs */}
+            <span className="hidden xs:inline text-[var(--border)]">·</span>
 
-            {/* Reasoning toggle — labeled */}
+            {/* Reasoning toggle — label hidden on xs, 'off' abbreviated to '·' on xs */}
             <div className="flex items-center gap-1">
-                <span className="text-[var(--text-muted)] font-medium uppercase tracking-wider text-[10px]">Reasoning</span>
+                <span className="hidden xs:inline text-[var(--text-muted)] font-medium uppercase tracking-wider text-[10px]">Reasoning</span>
                 <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden">
-                    {['off', 'low', 'medium', 'high'].map((level) => (
-                        <button
-                            key={level}
-                            onClick={() => setReasoning(level)}
-                            className={`px-2 py-1 transition-colors ${
-                                status.reasoning === level
-                                    ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
-                                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-                            }`}
-                            title={`Reasoning effort: ${level}`}
-                        >
-                            {level}
-                        </button>
-                    ))}
+                    {(['off', 'low', 'med', 'high'] as const).map((level) => {
+                        const fullLevel = level === 'med' ? 'medium' : level;
+                        return (
+                            <button
+                                key={level}
+                                onClick={() => setReasoning(fullLevel)}
+                                className={`px-2 py-1 transition-colors ${
+                                    status.reasoning === fullLevel
+                                        ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
+                                        : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                                }`}
+                                title={`Reasoning: ${fullLevel}`}
+                            >
+                                {level}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 
-            <span className="text-[var(--border)]">·</span>
+            {/* Separator — hidden on xs */}
+            <span className="hidden xs:inline text-[var(--border)]">·</span>
 
             {/* Theme toggle */}
             <button
@@ -251,10 +261,10 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
                 <ThemeIcon size={13} />
             </button>
 
-            {/* Token usage */}
+            {/* Token usage — hidden on xs */}
             {totalTokens > 0 && (
-                <span className="text-[var(--text-muted)]" title={`Prompt: ${tokenUsage!.totalPromptTokens.toLocaleString()} · Completion: ${tokenUsage!.totalCompletionTokens.toLocaleString()}`}>
-                    {totalTokens.toLocaleString()} tokens
+                <span className="hidden xs:inline text-[var(--text-muted)]" title={`Prompt: ${tokenUsage!.totalPromptTokens.toLocaleString()} · Completion: ${tokenUsage!.totalCompletionTokens.toLocaleString()}`}>
+                    {totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k` : totalTokens} tok
                 </span>
             )}
 

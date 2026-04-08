@@ -14,8 +14,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     { group: 'Session', command: '/session',  description: 'Show active session details' },
     { group: 'Session', command: '/memory',   description: 'Show current memory index' },
     // Mode
-    { group: 'Mode',    command: '/chat',     description: 'Switch to conversational mode (default)' },
-    { group: 'Mode',    command: '/plan',     description: 'Switch to read-only planning mode' },
+    { group: 'Mode',    command: '/plan',     description: 'Switch to spec planning mode — generates .deepa/specs/, no code changes' },
     { group: 'Mode',    command: '/exec',     description: 'Switch to autonomous execution mode' },
     { group: 'Mode',    command: '/autonomy', description: 'Set autonomy level', usage: '/autonomy <low|medium|high>' },
     // Info

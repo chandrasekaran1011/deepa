@@ -92,7 +92,7 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
             <div className="fixed inset-0 z-30 bg-black/40" onClick={onClose} />
 
             {/* Panel */}
-            <div className="fixed top-0 left-0 bottom-0 z-40 w-72 bg-[var(--bg-card)] border-r border-[var(--border)] flex flex-col shadow-2xl">
+            <div className="fixed top-0 left-0 bottom-0 z-40 w-72 max-w-[85vw] bg-[var(--bg-card)] border-r border-[var(--border)] flex flex-col shadow-2xl">
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
                     <span className="font-bold text-sm text-[var(--text)]">Sessions</span>

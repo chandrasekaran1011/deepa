@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* ─── Custom breakpoints ─── */
+@theme {
+  /* xs: narrowest panels (VS Code sidebar ~350-480px) */
+  --breakpoint-xs: 480px;
+}
+
 /* ─── Dark theme (default) ─── */
 :root, [data-theme="dark"] {
   --bg: #0f1117;
