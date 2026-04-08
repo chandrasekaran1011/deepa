@@ -191,6 +191,7 @@ export function createSpawnAgentTool(
                         signal: context.signal, // propagate abort signal from parent
                         maxIterations: agentDef.maxTurns, // enforce agent-defined turn limit
                         spawnDepth: currentDepth + 1, // increment nesting depth
+                        agentId: `${agentName}-${Date.now()}`, // isolate todo list from parent
                         onToolCall: (name, args) => {
                             context.log(`[spawn_agent:${agentName}] → ${name}(${JSON.stringify(args).slice(0, 100)})`);
                         },

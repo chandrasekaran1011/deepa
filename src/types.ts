@@ -96,6 +96,8 @@ export interface ToolContext {
     hooksConfig?: import('./hooks/index.js').HooksConfig;
     /** Denial counter — tracks consecutive user denials for autonomy downgrade */
     denialTracker?: DenialTracker;
+    /** Agent ID for per-agent todo isolation — undefined means root agent */
+    agentId?: string;
 }
 
 export interface DenialTracker {
@@ -108,7 +110,7 @@ export interface DenialTracker {
 export type ProviderType = 'openai' | 'anthropic' | 'local';
 export type AutonomyLevel = 'low' | 'medium' | 'high';
 export type SafetyLevel = 'low' | 'medium' | 'high' | 'very-high';
-export type AgentMode = 'chat' | 'plan' | 'exec';
+export type AgentMode = 'plan' | 'exec';
 
 export interface ProviderConfig {
     type: ProviderType;

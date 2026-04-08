@@ -371,8 +371,10 @@ describe('Todo Tool', () => {
         }, makeContext());
         const stored = getTodos();
         expect(stored).toHaveLength(2);
-        expect(stored[0]).toEqual({ content: 'A', status: 'pending' });
-        expect(stored[1]).toEqual({ content: 'B', status: 'completed' });
+        expect(stored[0].content).toBe('A');
+        expect(stored[0].status).toBe('pending');
+        expect(stored[1].content).toBe('B');
+        expect(stored[1].status).toBe('completed');
     });
 
     it('resets with resetTodos()', async () => {
