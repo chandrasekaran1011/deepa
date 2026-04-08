@@ -407,7 +407,7 @@ export function printConfig(config: {
     const hints = [
         ['/help', 'commands'],
         ['/quit', 'exit'],
-        ['/plan', 'plan mode'],
+        ['/plan', 'spec planning'],
         ['/exec', 'exec mode'],
         ['/model', 'models'],
     ];
@@ -489,7 +489,8 @@ export function printToolCall(name: string, args: Record<string, unknown>): void
         }
 
         if (inProgress) {
-            startSpinner(inProgress.content + '…');
+            const spinnerLabel = (inProgress as { activeForm?: string }).activeForm || inProgress.content;
+            startSpinner(spinnerLabel + '…');
         }
         return;
     }
@@ -625,8 +626,7 @@ export function printHelp(): void {
 
     section('Mode');
     cmd('exec', 'autonomous execution (plan → run → verify)');
-    cmd('plan', 'plan only — no file changes');
-    cmd('chat', 'conversational mode');
+    cmd('plan', 'spec planning — generates .deepa/specs/, no code changes');
     cmd('autonomy <level>', 'set autonomy: low · medium · high');
     console.log();
 

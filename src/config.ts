@@ -19,7 +19,7 @@ const ProjectConfigSchema = z.object({
         maxTokens: z.number().optional(),
     }).optional(),
     autonomy: z.enum(['low', 'medium', 'high']).optional(),
-    mode: z.enum(['chat', 'plan', 'exec']).optional(),
+    mode: z.enum(['plan', 'exec']).optional(),
     verbose: z.boolean().optional(),
 }).passthrough();
 
