@@ -1,0 +1,97 @@
+{
+  "name": "deepa-vscode",
+  "displayName": "Deepa",
+  "description": "Deepa AI coding agent for VS Code — supports OpenAI, Anthropic, local LLMs, MCP, and skills",
+  "version": "0.1.0",
+  "publisher": "deepa",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["AI", "Chat", "Other"],
+  "keywords": ["ai", "agent", "llm", "deepa", "coding", "mcp"],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "deepa.openPanel",
+        "title": "Open Deepa",
+        "icon": {
+          "light": "./media/deepa-d.svg",
+          "dark": "./media/deepa-d.svg"
+        }
+      },
+      {
+        "command": "deepa.newSession",
+        "title": "Deepa: New Session"
+      },
+      {
+        "command": "deepa.sendSelection",
+        "title": "Deepa: Send Selection to Chat"
+      }
+    ],
+    "icons": {
+      "deepa-d": {
+        "description": "Deepa D icon",
+        "default": {
+          "fontPath": "./media/deepa-d.svg",
+          "fontCharacter": "D"
+        }
+      }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "deepa.openPanel",
+          "group": "navigation@1",
+          "when": "editorIsOpen"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "deepa.sendSelection",
+          "when": "editorHasSelection",
+          "group": "deepa"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "deepa.openPanel",
+        "key": "ctrl+shift+d",
+        "mac": "cmd+shift+d"
+      },
+      {
+        "command": "deepa.sendSelection",
+        "key": "ctrl+alt+d",
+        "mac": "cmd+alt+d",
+        "when": "editorHasSelection"
+      }
+    ],
+    "configuration": {
+      "title": "Deepa",
+      "properties": {
+        "deepa.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to deepa CLI dist/index.js (auto-detected if empty)"
+        },
+        "deepa.port": {
+          "type": "number",
+          "default": 0,
+          "description": "Port for the deepa UI server (0 = auto)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package",
+    "vscode:prepublish": "node esbuild.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "@vscode/vsce": "^2.24.0"
+  }
+}
