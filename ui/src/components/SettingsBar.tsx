@@ -47,12 +47,12 @@ export const SettingsBar: React.FC<SettingsBarProps> = ({ onToggleSessions }) =>
     const cwd = formatCwd(status.cwd || '');
 
     return (
-        <div className="flex items-center justify-between px-4 py-2.5 bg-[var(--bg-card)] border-b border-[var(--accent)]/20">
+        <div className="flex items-center justify-between px-3 xs:px-4 py-2 xs:py-2.5 bg-[var(--bg-card)] border-b border-[var(--accent)]/20 min-w-0">
             {/* Left: Brand + Sessions */}
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2 shrink-0">
                 <div className="flex items-center gap-1.5">
                     <span className="text-[var(--accent)] font-bold text-base">◆</span>
-                    <span className="font-bold text-[var(--text)] text-base tracking-tight">Deepa</span>
+                    <span className="font-bold text-[var(--text)] text-sm xs:text-base tracking-tight">Deepa</span>
                 </div>
                 {onToggleSessions && (
                     <button
@@ -65,11 +65,12 @@ export const SettingsBar: React.FC<SettingsBarProps> = ({ onToggleSessions }) =>
                 )}
             </div>
 
-            {/* Right: CWD */}
-            <div className="flex items-center gap-1.5 text-xs max-w-[50%]">
-                <FolderOpen size={12} className="text-[var(--text-muted)] shrink-0" />
-                <span className="truncate">
-                    <span className="text-[var(--text-muted)]">{cwd.parent}</span>
+            {/* Right: CWD — show only folder name on xs, full path on sm+ */}
+            <div className="flex items-center gap-1 text-xs min-w-0 ml-2">
+                <FolderOpen size={11} className="text-[var(--text-muted)] shrink-0" />
+                <span className="truncate min-w-0">
+                    {/* Parent path: hidden on xs, visible on sm+ */}
+                    <span className="hidden xs:inline text-[var(--text-muted)]">{cwd.parent}</span>
                     <span className="text-[var(--text-secondary)] font-medium">{cwd.folder}</span>
                 </span>
             </div>

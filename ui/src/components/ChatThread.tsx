@@ -77,7 +77,7 @@ function getResultLineCount(result: string): number {
 
 export const ChatThread: React.FC<ChatThreadProps> = ({ messages, isProcessing, pendingConfirmation, onConfirmResponse }) => {
     return (
-        <div className="py-6 px-4 space-y-0">
+        <div className="py-3 xs:py-6 px-2 xs:px-4 space-y-0">
             {messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center min-h-[60vh] text-[var(--text-muted)] space-y-3">
                     <div className="text-4xl opacity-30">◆</div>
@@ -156,12 +156,12 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
                     )}
                 </div>
                 {/* User message body */}
-                <div className="py-2 px-3 ml-8 text-[var(--text)] text-sm whitespace-pre-wrap leading-relaxed">
+                <div className="py-2 px-2 xs:px-3 ml-6 xs:ml-8 text-[var(--text)] text-sm whitespace-pre-wrap leading-relaxed">
                     {message.content}
                 </div>
                 {/* Attachment thumbnails */}
                 {message.attachments && message.attachments.length > 0 && (
-                    <div className="flex gap-2 px-3 ml-8 pb-1">
+                    <div className="flex gap-2 px-2 xs:px-3 ml-6 xs:ml-8 pb-1">
                         {message.attachments.map((att, i) => (
                             <div key={i} className="w-16 h-16 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] overflow-hidden">
                                 {att.preview ? (
@@ -202,7 +202,7 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
                 })();
 
                 return (
-                    <div className="space-y-0.5 ml-8">
+                    <div className="space-y-0.5 ml-6 xs:ml-8">
                         {message.toolCalls!.map((call, idx) => {
                             if (call.name === 'todo' && idx !== lastTodoIdx) return null;
                             return <ToolLine key={call.id} call={call} />;
@@ -213,7 +213,7 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
 
             {/* Assistant text with markdown */}
             {message.content && (
-                <div className="py-2 px-2 ml-8">
+                <div className="py-2 px-2 ml-6 xs:ml-8">
                     <div className={`prose-dark text-sm leading-relaxed ${message.isStreaming ? 'streaming-cursor' : ''}`}>
                         <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
@@ -227,7 +227,7 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
 
             {/* Streaming with no content yet */}
             {!message.content && message.isStreaming && !message.toolCalls?.length && (
-                <div className="flex items-center gap-3 py-2 px-2 ml-8">
+                <div className="flex items-center gap-3 py-2 px-2 ml-6 xs:ml-8">
                     <span className="spinner text-[var(--text-muted)] text-sm">✱</span>
                     <span className="text-[var(--text-muted)] text-sm">Thinking...</span>
                 </div>

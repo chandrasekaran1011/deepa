@@ -21,7 +21,7 @@ function App() {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [showSessions, setShowSessions] = useState(false);
+  const [showSessions, setShowSessions] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsRefreshKey, setSettingsRefreshKey] = useState(0);
   // Slash command picker state
@@ -218,7 +218,7 @@ function App() {
 
       {/* Chat Thread */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-4xl mx-auto w-full">
           <ChatThread messages={messages} isProcessing={isProcessing} pendingConfirmation={pendingConfirmation} onConfirmResponse={respondToConfirmation} />
           <div ref={bottomRef} className="h-8" />
         </div>
@@ -226,7 +226,7 @@ function App() {
 
       {/* Input Area */}
       <div className="border-t border-[var(--border)] bg-[var(--bg)]">
-        <div className="max-w-4xl mx-auto px-4 py-3">
+        <div className="max-w-4xl mx-auto px-2 xs:px-4 py-2 xs:py-3">
           {/* Attachment Preview */}
           {attachments.length > 0 && (
             <div className="flex gap-2 mb-2 flex-wrap">
@@ -289,8 +289,8 @@ function App() {
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                placeholder={isProcessing ? 'Queue another message...' : 'Message Deepa... (type / for commands)'}
-                className="w-full min-h-[52px] py-3 px-4 bg-[var(--bg-input)] border border-[var(--border)] rounded-xl resize-none focus:outline-none focus:border-[var(--accent)]/50 text-[var(--text)] placeholder:text-[var(--text-muted)] text-sm transition-colors leading-relaxed"
+                placeholder={isProcessing ? 'Queue another message...' : 'Message Deepa... (/ for commands)'}
+                className="w-full min-h-[44px] xs:min-h-[52px] py-2.5 xs:py-3 px-3 xs:px-4 bg-[var(--bg-input)] border border-[var(--border)] rounded-xl resize-none focus:outline-none focus:border-[var(--accent)]/50 text-[var(--text)] placeholder:text-[var(--text-muted)] text-sm transition-colors leading-relaxed"
                 rows={1}
                 style={{ overflowY: 'auto' }}
               />
