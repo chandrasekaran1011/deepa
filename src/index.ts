@@ -245,10 +245,13 @@ program
     .command('ui')
     .description('Launch the Deepa graphical web interface')
     .option('-p, --port <number>', 'Port to run the UI server on', '3001')
-    .action(async (options: { port: string }, flags: CLIFlags) => {
+    .option('--no-open', 'Do not open the browser automatically')
+    .action(async (options: { port: string; open: boolean }, flags: CLIFlags) => {
         const port = parseInt(options.port, 10);
         await startUIServer(port, flags);
-        await open(`http://localhost:${port}`);
+        if (options.open !== false) {
+            await open(`http://localhost:${port}`);
+        }
     });
 
 // ─── Plan/exec subcommands ───
