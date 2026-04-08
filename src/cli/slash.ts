@@ -57,8 +57,7 @@ export async function handleSlashCommand(commandStr: string, context: SlashComma
   /compact       Force deep history compaction
 
 Modes & Settings:
-  /chat          Interactive conversational mode (default)
-  /plan          Read-only architecture planning mode
+  /plan          Specification planning mode (read-only, generates .deepa/specs/)
   /exec          Autonomous execution mode
   /autonomy <lvl> Set autonomy (low/medium/high)
 
@@ -86,11 +85,6 @@ Media:
         case 'exec':
             setMode?.('exec');
             addSystemMessage('mode → exec (autonomous)');
-            return true;
-
-        case 'chat':
-            setMode?.('chat');
-            addSystemMessage('mode → chat (conversational)');
             return true;
 
         case 'autonomy':
