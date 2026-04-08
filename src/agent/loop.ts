@@ -30,6 +30,8 @@ export interface LoopOptions {
     maxIterations?: number;
     /** Current spawn depth — used to prevent unbounded recursion */
     spawnDepth?: number;
+    /** Agent ID for per-agent todo isolation — omit for root agent */
+    agentId?: string;
 }
 
 const DEFAULT_MAX_ITERATIONS = 50;
@@ -105,6 +107,7 @@ export async function runAgentLoop(
         confirmAction,
         maxIterations = DEFAULT_MAX_ITERATIONS,
         spawnDepth = 0,
+        agentId,
     } = options;
 
     // Build system prompt
@@ -176,6 +179,7 @@ export async function runAgentLoop(
         readFileState: new Map<string, number>(), // Maps absolute paths to modification timestamp
         get messages() { return messages; },
         spawnDepth,
+        agentId,
         signal,
         hooksConfig,
         denialTracker,

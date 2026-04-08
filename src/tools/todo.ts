@@ -10,7 +10,7 @@ import type { ToolResult, ToolContext } from '../types.js';
 const todoItemSchema = z.object({
     content: z.coerce.string().min(1).describe('Imperative task description (e.g., "Run tests", "Fix login bug")'),
     status: z.enum(['pending', 'in_progress', 'completed']).catch('pending').describe('Task state'),
-    activeForm: z.coerce.string().optional().catch(undefined).describe('Present-tense label shown during execution (e.g., "Running tests", "Fixing login bug")'),
+    activeForm: z.coerce.string().optional().catch(undefined).describe('REQUIRED. Present-tense label shown during execution (e.g., "Running tests", "Fixing login bug"). Always provide this.'),
 });
 
 const parameters = z.object({
@@ -19,17 +19,22 @@ const parameters = z.object({
 
 export type TodoItem = z.infer<typeof todoItemSchema>;
 
-/** In-memory todo store — shared across the session */
-let currentTodos: TodoItem[] = [];
+/** Per-agent in-memory todo store keyed by agentId (empty string = root agent) */
+const todoStore = new Map<string, TodoItem[]>();
 
-/** Read the current todo list (for UI or tests) */
-export function getTodos(): TodoItem[] {
-    return currentTodos;
+/** Read the current todo list for a given agent (for UI or tests) */
+export function getTodos(agentId = ''): TodoItem[] {
+    return todoStore.get(agentId) ?? [];
 }
 
-/** Reset todos (for tests) */
+/** Read todos for the root agent (convenience for UI) */
+export function getRootTodos(): TodoItem[] {
+    return getTodos('');
+}
+
+/** Reset todos for all agents (for tests) */
 export function resetTodos(): void {
-    currentTodos = [];
+    todoStore.clear();
 }
 
 /** Format the todo list for terminal display */
@@ -72,11 +77,14 @@ export function formatTodos(todos: TodoItem[]): string {
     return lines.join('\n');
 }
 
+/** Minimum task count before verification nudge fires */
+const VERIFY_NUDGE_MIN_TASKS = 3;
+
 /**
  * Build an actionable feedback message based on the current state of todos.
- * This nudges the LLM to take the right next action.
+ * Returns { message, verificationNudgeNeeded }.
  */
-function buildFeedback(prev: TodoItem[], next: TodoItem[]): string {
+function buildFeedback(prev: TodoItem[], next: TodoItem[]): { message: string; verificationNudgeNeeded: boolean } {
     const completed = next.filter((t) => t.status === 'completed').length;
     const pending = next.filter((t) => t.status === 'pending').length;
     const inProgress = next.filter((t) => t.status === 'in_progress');
@@ -107,9 +115,24 @@ function buildFeedback(prev: TodoItem[], next: TodoItem[]): string {
         parts.push(`Removed: ${removed.map((t) => `"${t.content}"`).join(', ')}`);
     }
 
+    const allDone = completed === total && total > 0;
+
+    // Verification nudge: all done, enough tasks, and no verification task existed
+    const hasVerifyTask = next.some((t) => /verif/i.test(t.content));
+    const verificationNudgeNeeded = allDone && total >= VERIFY_NUDGE_MIN_TASKS && !hasVerifyTask;
+
     // Actionable nudges
-    if (completed === total && total > 0) {
-        parts.push('All tasks completed! Summarize the results to the user.');
+    if (allDone) {
+        if (verificationNudgeNeeded) {
+            parts.push(
+                'All tasks completed. IMPORTANT: You have not verified your work. ' +
+                'Before summarizing to the user, run the relevant tests or verification steps ' +
+                '(e.g., run the test suite, build, or manually check the output). ' +
+                'Only report success after you have confirmed the implementation is correct.',
+            );
+        } else {
+            parts.push('All tasks completed. Summarize the results to the user.');
+        }
     } else if (inProgress.length === 0 && pending > 0) {
         parts.push(`WARNING: No task is in_progress but ${pending} tasks are pending. Set the next task to "in_progress" and continue working.`);
     } else if (inProgress.length === 1 && pending > 0) {
@@ -118,7 +141,7 @@ function buildFeedback(prev: TodoItem[], next: TodoItem[]): string {
         parts.push(`Final task: "${inProgress[0].content}" — complete this and mark it done.`);
     }
 
-    return parts.join('\n');
+    return { message: parts.join('\n'), verificationNudgeNeeded };
 }
 
 export const todoTool: Tool = {
@@ -144,11 +167,13 @@ export const todoTool: Tool = {
             };
         }
 
-        // Capture previous state for diff feedback
-        const prev = currentTodos;
+        // Per-agent isolation: each spawn_agent subagent gets its own todo list
+        const agentId = context.agentId ?? '';
+        const prev = todoStore.get(agentId) ?? [];
 
         // First todo call = initial plan — request user approval before executing
-        if (prev.length === 0 && todos.length > 0) {
+        // (only for root agent, not subagents)
+        if (agentId === '' && prev.length === 0 && todos.length > 0) {
             const response = await context.confirmAction(
                 `PLAN_APPROVAL\n${JSON.stringify(todos)}`,
             );
@@ -159,13 +184,18 @@ export const todoTool: Tool = {
             }
         }
 
-        // Store
-        currentTodos = todos;
+        // Auto-clear when all tasks are completed — prevents stale list lingering
+        const allDone = todos.length > 0 && todos.every((t) => t.status === 'completed');
+        const stored = allDone ? [] : todos;
+        todoStore.set(agentId, stored);
 
-        const feedback = buildFeedback(prev, todos);
+        const { message, verificationNudgeNeeded } = buildFeedback(prev, todos);
+
+        // Show the list before it clears (use original todos for display, not stored)
+        const display = allDone ? formatTodos(todos) : formatTodos(stored);
 
         return {
-            content: formatTodos(todos) + '\n\n' + feedback,
+            content: display + '\n\n' + message,
         };
     },
 };
