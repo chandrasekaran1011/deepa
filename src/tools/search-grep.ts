@@ -44,6 +44,10 @@ export const searchGrepTool: Tool = {
             }
             args.push('--', query, absPath);
         } catch {
+            context.log('[search_grep] ripgrep (rg) not found — falling back to grep. ' +
+                (isWin ? 'Install with: scoop install ripgrep  or  choco install ripgrep'
+                    : process.platform === 'darwin' ? 'Install with: brew install ripgrep'
+                    : 'Install with: apt install ripgrep  or  dnf install ripgrep'));
             cmd = 'grep';
             args.push('-rn');
             if (!isRegex) args.push('-F');

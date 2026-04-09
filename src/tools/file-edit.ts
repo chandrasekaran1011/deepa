@@ -1,6 +1,6 @@
 // ─── File edit tool (search-and-replace) ───
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
 import { resolvePath } from './resolve-path.js';
 import { z } from 'zod';
 import type { Tool } from './registry.js';
@@ -39,6 +39,28 @@ export const fileEditTool: Tool = {
     parameters,
     riskLevel: 'medium',
 
+    async validateInput(params: unknown, context: ToolContext) {
+        const { path: filePath } = params as z.infer<typeof parameters>;
+        if (!filePath) return { valid: false, message: 'path is required' };
+        
+        const absPath = resolvePath(filePath, context.cwd);
+        if (!existsSync(absPath)) {
+            return { valid: false, message: 'File does not exist.' };
+        }
+
+        const stats = statSync(absPath);
+        const lastRead = context.readFileState.get(absPath);
+        
+        if (lastRead === undefined) {
+             return { valid: false, message: 'File has not been read yet. Read it first with file_read to avoid hallucinating search-and-replace regions.' };
+        }
+        if (Math.floor(stats.mtimeMs) > Math.floor(lastRead)) {
+             return { valid: false, message: 'File has been modified on disk since you last read it. Read it again with file_read before attempting an edit.' };
+        }
+
+        return { valid: true };
+    },
+
     async execute(params: unknown, context: ToolContext): Promise<ToolResult> {
         const { path: filePath, search, replace, replaceAll } = params as z.infer<typeof parameters>;
         const absPath = resolvePath(filePath, context.cwd);
@@ -57,7 +79,7 @@ export const fileEditTool: Tool = {
             };
         }
 
-        // Uniqueness check: reject ambiguous single replacements (Claude Code pattern)
+
         if (!replaceAll && occurrences > 1) {
             return {
                 content: `Error: Found ${occurrences} occurrences of the search text in ${absPath}. ` +
@@ -75,6 +97,8 @@ export const fileEditTool: Tool = {
         }
 
         writeFileSync(absPath, content, 'utf-8');
+        // Update the read state so subsequent writes don't fail the verification
+        context.readFileState.set(absPath, statSync(absPath).mtimeMs);
 
         // Show context around the replacement so the LLM can verify
         const newLines = content.split('\n');

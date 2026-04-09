@@ -9,8 +9,11 @@ interface ChatThreadProps {
     isProcessing: boolean;
     pendingConfirmation?: {
         description: string;
-        type: 'action' | 'plan';
+        type: 'action' | 'plan' | 'question';
         planItems?: { content: string; status: string }[];
+        question?: string;
+        options?: { label: string; description?: string }[];
+        allowCustom?: boolean;
     } | null;
     onConfirmResponse?: (response: 'allow' | 'deny' | string) => void;
 }
@@ -28,6 +31,7 @@ const TOOL_VERBS: Record<string, { done: string; pending: string }> = {
     web_fetch: { done: 'Fetched', pending: 'Fetching...' },
     web_search: { done: 'Searched', pending: 'Searching...' },
     todo: { done: 'Updated', pending: 'Updating tasks...' },
+    ask_user: { done: 'Asked', pending: 'Asking...' },
     git_worktree: { done: 'Worktree', pending: 'Creating worktree...' },
     use_skill: { done: 'Skill', pending: 'Loading skill...' },
 };
@@ -85,9 +89,16 @@ export const ChatThread: React.FC<ChatThreadProps> = ({ messages, isProcessing, 
                 ))
             )}
 
-            {/* Confirmation / Plan Approval Card */}
+            {/* Confirmation / Plan Approval / Question Card */}
             {pendingConfirmation && onConfirmResponse && (
-                pendingConfirmation.type === 'plan' && pendingConfirmation.planItems ? (
+                pendingConfirmation.type === 'question' && pendingConfirmation.options ? (
+                    <QuestionCard
+                        question={pendingConfirmation.question || pendingConfirmation.description}
+                        options={pendingConfirmation.options}
+                        allowCustom={pendingConfirmation.allowCustom ?? true}
+                        onResponse={onConfirmResponse}
+                    />
+                ) : pendingConfirmation.type === 'plan' && pendingConfirmation.planItems ? (
                     <PlanApprovalCard
                         planItems={pendingConfirmation.planItems}
                         onResponse={onConfirmResponse}
@@ -173,6 +184,14 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
     // Assistant message
     return (
         <div className="py-1">
+            {/* Assistant header */}
+            <div className="flex items-center gap-2 px-2 mb-1.5 mt-3">
+                <div className="w-6 h-6 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0">
+                    <Bot size={13} className="text-[var(--accent)]" />
+                </div>
+                <span className="text-xs font-semibold text-[var(--accent)] uppercase tracking-wide">Deepa</span>
+            </div>
+
             {/* Tool calls — shown as flat lines, with only the latest todo card visible */}
             {message.toolCalls && message.toolCalls.length > 0 && (() => {
                 const lastTodoIdx = (() => {
@@ -183,7 +202,7 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
                 })();
 
                 return (
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 ml-8">
                         {message.toolCalls!.map((call, idx) => {
                             if (call.name === 'todo' && idx !== lastTodoIdx) return null;
                             return <ToolLine key={call.id} call={call} />;
@@ -194,7 +213,7 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
 
             {/* Assistant text with markdown */}
             {message.content && (
-                <div className="py-2 px-2">
+                <div className="py-2 px-2 ml-8">
                     <div className={`prose-dark text-sm leading-relaxed ${message.isStreaming ? 'streaming-cursor' : ''}`}>
                         <ReactMarkdown
                             remarkPlugins={[remarkGfm]}
@@ -208,19 +227,15 @@ const MessageEntry: React.FC<{ message: ChatMessage }> = ({ message }) => {
 
             {/* Streaming with no content yet */}
             {!message.content && message.isStreaming && !message.toolCalls?.length && (
-                <div className="flex items-center gap-3 py-2 px-2">
+                <div className="flex items-center gap-3 py-2 px-2 ml-8">
                     <span className="spinner text-[var(--text-muted)] text-sm">✱</span>
                     <span className="text-[var(--text-muted)] text-sm">Thinking...</span>
                 </div>
             )}
 
-            {/* End-of-response indicator — shown when assistant is done and has content */}
+            {/* End-of-response separator */}
             {!message.isStreaming && message.content && (
-                <div className="mx-2 mt-1 mb-2 flex items-center gap-2">
-                    <div className="flex-1 border-b border-[var(--border)]/30" />
-                    <span className="text-[10px] text-[var(--text-muted)]/60 shrink-0">◆</span>
-                    <div className="flex-1 border-b border-[var(--border)]/30" />
-                </div>
+                <div className="mx-2 mt-2 mb-2 border-b border-[var(--border)]/30" />
             )}
         </div>
     );
@@ -465,6 +480,110 @@ const PlanApprovalCard: React.FC<{
                         </button>
                         <button
                             onClick={() => setShowFeedback(false)}
+                            className="px-3 py-1.5 rounded-md bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-xs"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ─── Question Card ───
+
+const QuestionCard: React.FC<{
+    question: string;
+    options: { label: string; description?: string }[];
+    allowCustom: boolean;
+    onResponse: (response: string) => void;
+}> = ({ question, options, allowCustom, onResponse }) => {
+    const [showCustom, setShowCustom] = useState(false);
+    const [customText, setCustomText] = useState('');
+
+    const handleCustomSubmit = () => {
+        if (customText.trim()) {
+            onResponse(customText.trim());
+        }
+    };
+
+    return (
+        <div className="my-3 mx-2 rounded-lg border border-[var(--accent)]/30 bg-[var(--accent)]/5 overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--accent)]/20">
+                <MessageSquare size={14} className="text-[var(--accent)]" />
+                <span className="font-bold text-sm text-[var(--text)]">{question}</span>
+            </div>
+
+            {/* Options */}
+            <div className="px-3 py-2.5 space-y-1.5">
+                {options.map((opt, i) => (
+                    <button
+                        key={i}
+                        onClick={() => onResponse(opt.label)}
+                        className="w-full text-left px-3 py-2.5 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] hover:border-[var(--accent)]/50 hover:bg-[var(--accent)]/5 transition-colors group"
+                    >
+                        <div className="flex items-start gap-2.5">
+                            <span className="shrink-0 w-5 h-5 rounded-full bg-[var(--accent)]/15 flex items-center justify-center text-[10px] font-bold text-[var(--accent)] mt-0.5">
+                                {i + 1}
+                            </span>
+                            <div>
+                                <div className="text-sm font-medium text-[var(--text)] group-hover:text-[var(--accent)] transition-colors">
+                                    {opt.label}
+                                </div>
+                                {opt.description && (
+                                    <div className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">
+                                        {opt.description}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </button>
+                ))}
+            </div>
+
+            {/* Custom input + Dismiss */}
+            <div className="px-3 py-2.5 border-t border-[var(--accent)]/20">
+                {!showCustom ? (
+                    <div className="flex items-center gap-2">
+                        {allowCustom && (
+                            <button
+                                onClick={() => setShowCustom(true)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--bg-input)] text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors text-xs font-medium"
+                            >
+                                <MessageSquare size={12} />
+                                Custom answer
+                            </button>
+                        )}
+                        <button
+                            onClick={() => onResponse('deny')}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-xs"
+                        >
+                            <X size={12} />
+                            Skip
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="text"
+                            value={customText}
+                            onChange={(e) => setCustomText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleCustomSubmit()}
+                            placeholder="Type your answer..."
+                            className="flex-1 px-3 py-1.5 rounded-md bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] text-xs focus:outline-none focus:border-[var(--accent)]/50"
+                            autoFocus
+                        />
+                        <button
+                            onClick={handleCustomSubmit}
+                            disabled={!customText.trim()}
+                            className="px-3 py-1.5 rounded-md bg-[var(--accent)]/15 text-[var(--accent)] hover:bg-[var(--accent)]/25 transition-colors text-xs font-medium disabled:opacity-40"
+                        >
+                            Send
+                        </button>
+                        <button
+                            onClick={() => setShowCustom(false)}
                             className="px-3 py-1.5 rounded-md bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors text-xs"
                         >
                             Cancel

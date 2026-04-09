@@ -10,8 +10,10 @@ import { createProvider } from './providers/registry.js';
 import { ToolRegistry } from './tools/registry.js';
 import { runAgentLoop } from './agent/loop.js';
 import { loadAgentsMd } from './context/agents-md.js';
-import { loadMemory } from './context/memory.js';
-import { createSession, saveSession, loadLatestSession, type Session } from './context/history.js';
+import { loadPrimaryMemoryIndex } from './context/memory.js';
+import { createSession, saveSession, loadLatestSession, appendMessages, registerSessionCleanup, type Session } from './context/history.js';
+import { compressConversationHistory } from './context/compression.js';
+import { bootInkApp } from './cli/boot.js';
 import { loadSkills } from './plugins/skills.js';
 import { loadAgents } from './plugins/agents.js';
 import { createUseSkillTool } from './tools/use-skill.js';
@@ -21,7 +23,7 @@ import {
     addModel, removeModel, listModels, setDefaultModel, getModel,
     PROVIDER_PRESETS, type StoredModel,
 } from './store/models.js';
-import { addMcpServer, removeMcpServer, listMcpServers } from './store/mcp.js';
+import { addMcpServer, removeMcpServer, listMcpServers, enableMcpServer, disableMcpServer } from './store/mcp.js';
 import { recordTokenUsage, getTokenSummary } from './store/tokens.js';
 
 import { startUIServer } from './server/ui-server.js';
@@ -65,7 +67,7 @@ import { webSearchTool } from './tools/web-search.js';
 import { todoTool } from './tools/todo.js';
 import { gitWorktreeTool } from './tools/worktree.js';
 import { thinkTool } from './tools/think.js';
-import { memoryTool } from './tools/memory.js';
+import { askUserTool } from './tools/ask-user.js';
 
 // ────────────────── CLI Setup ──────────────────
 
@@ -190,6 +192,28 @@ mcpCmd
     });
 
 mcpCmd
+    .command('enable <name>')
+    .description('Enable a disabled MCP server')
+    .action((name: string) => {
+        if (enableMcpServer(name)) {
+            console.log(chalk.green(`  ✓ MCP server "${name}" enabled`));
+        } else {
+            console.log(chalk.red(`  ✗ MCP server "${name}" not found`));
+        }
+    });
+
+mcpCmd
+    .command('disable <name>')
+    .description('Disable an MCP server without removing it')
+    .action((name: string) => {
+        if (disableMcpServer(name)) {
+            console.log(chalk.yellow(`  ⏸ MCP server "${name}" disabled`));
+        } else {
+            console.log(chalk.red(`  ✗ MCP server "${name}" not found`));
+        }
+    });
+
+mcpCmd
     .command('list')
     .description('List configured MCP servers')
     .action(() => {
@@ -202,7 +226,10 @@ mcpCmd
         console.log(chalk.bold('\n  MCP Servers:\n'));
         for (const name of names) {
             const s = servers[name];
-            console.log(`  ${chalk.cyan(name)}`);
+            const disabled = s.enabled === false;
+            const nameLabel = disabled ? chalk.dim(name) : chalk.cyan(name);
+            const badge = disabled ? chalk.dim(' [disabled]') : '';
+            console.log(`  ${nameLabel}${badge}`);
             if (s.url) {
                 console.log(chalk.dim(`    Remote URL: ${s.url}`));
             } else {
@@ -355,8 +382,8 @@ async function addModelInteractive(): Promise<void> {
         }
     }
 
-    const maxTokensStr = await promptUser('  Max tokens [16384]: ');
-    const maxTokens = maxTokensStr ? parseInt(maxTokensStr) : 16384;
+    const maxTokensStr = await promptUser('  Max tokens [8000]: ');
+    const maxTokens = maxTokensStr ? parseInt(maxTokensStr) : 8000;
 
     let useMaxCompletionTokens = false;
     if (provider === 'azure') {
@@ -455,7 +482,7 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
     tools.register(todoTool);
     tools.register(gitWorktreeTool);
     tools.register(thinkTool);
-    tools.register(memoryTool);
+    tools.register(askUserTool);
 
     // Create provider
     let provider: import('./providers/base.js').LLMProvider;
@@ -512,6 +539,9 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
         session = createSession(cwd);
     }
 
+    // Register graceful shutdown flush (saves on SIGINT/SIGTERM/exit)
+    registerSessionCleanup(session);
+
     // Print header
     const totalMcpTools = mcpConnections.reduce((sum, c) => sum + c.tools.length, 0);
     printHeader();
@@ -535,425 +565,36 @@ async function runInteractive(initialPrompt: string, flags: CLIFlags & { resume?
     let currentMode = config.mode;
     let conversationHistory: Message[] = session.messages;
 
-    // Handle initial prompt or interactive mode
-    const processMessage = async (userInput: string | MessageContent[]): Promise<void> => {
-        // Listen for Escape key to cancel the current operation
-        const { controller, cleanup } = listenForEscape();
-
-        startSpinner('thinking…');
-        let streamedText = '';
-        let mdRenderer = new StreamingMarkdownRenderer();
-
-        // Thinking collapse state — tracks streamed lines so we can
-        // retroactively replace them with a dim one-liner when a tool call follows.
-        let thinkingLineCount = 0;
-        let currentThinkingText = '';
-
-        try {
-            const updatedConfig = { ...config, mode: currentMode };
-            const messages = await runAgentLoop(userInput, conversationHistory, {
-                provider,
-                tools,
-                config: updatedConfig,
-                cwd,
-                agentsMdContent,
-
-                skillDescriptions,
-                agentDescriptions: agentRegistry.size > 0 ? agentDescriptions : undefined,
-                signal: controller.signal,
-                confirmAction,
-                onText: (text) => {
-                    stopSpinner();
-                    const rendered = mdRenderer.feed(text);
-                    if (rendered) {
-                        process.stdout.write(rendered);
-                        thinkingLineCount += (rendered.match(/\n/g) || []).length;
-                    }
-                    streamedText += text;
-                    currentThinkingText += text;
-                },
-                onToolCall: (name, args) => {
-                    // Flush any buffered markdown before collapsing
-                    const remaining = mdRenderer.flush();
-                    if (remaining) {
-                        process.stdout.write(remaining);
-                        thinkingLineCount += (remaining.match(/\n/g) || []).length;
-                    }
-
-                    // Retroactively collapse thinking text into a dim one-liner
-                    if (thinkingLineCount > 0 && currentThinkingText.trim()) {
-                        process.stdout.write(`\x1b[${thinkingLineCount}A\x1b[0J`);
-                        printThinkingLine(currentThinkingText);
-                    }
-
-                    // Reset for next text phase
-                    thinkingLineCount = 0;
-                    currentThinkingText = '';
-                    mdRenderer = new StreamingMarkdownRenderer();
-
-                    printToolCall(name, args);
-                },
-                onToolResult: (name, result, isError) => {
-                    printToolResult(name, result, isError);
-                    // Reset thinking trackers for next iteration
-                    thinkingLineCount = 0;
-                    currentThinkingText = '';
-                },
-                onTokenUsage: (p, c, tp, tc) => {
-                    printTokenUsage(p, c, tp, tc);
-                    recordTokenUsage({
-                        model: config.provider.model,
-                        provider: config.provider.type,
-                        promptTokens: p,
-                        completionTokens: c,
-                        sessionId: session.id,
-                    });
-                },
-            });
-
-            // Flush any remaining buffered markdown
-            const remaining = mdRenderer.flush();
-            if (remaining) process.stdout.write(remaining);
-
-            conversationHistory = messages;
-            session.messages = messages;
-            saveSession(session);
-        } catch (err) {
-            stopSpinner();
-            if (!controller.signal.aborted) {
-                printError(err instanceof Error ? err.message : String(err));
-            }
-        } finally {
-            cleanup();
-        }
-    };
-
-    // If initial prompt provided, run it
-    if (initialPrompt) {
-        await processMessage(initialPrompt);
-
-        // If not in chat mode with initial prompt, exit after one cycle
-        if (config.mode !== 'chat') {
-            return;
-        }
+    // Handle initial prompt or interactive mode using the new Ink UI architecture
+    try {
+        await bootInkApp({
+            initialHistory: conversationHistory,
+            provider,
+            tools,
+            config: { ...config, mode: currentMode },
+            cwd,
+            agentsMdContent,
+            skillDescriptions,
+            agentDescriptions: agentRegistry.size > 0 ? agentDescriptions : undefined,
+            confirmAction,
+            initialPrompt,
+            mcpConnections,
+            onSessionSave: (messages) => {
+                // Append only new messages since last save (CC-style incremental writes)
+                const prevCount = session.messages.length;
+                const newMessages = messages.slice(prevCount);
+                session.messages = messages;
+                appendMessages(session, newMessages);
+            },
+        });
+    } catch (e) {
+        printError(`Fatal UI error: ${e}`);
     }
 
-    // Interactive REPL
-    let inputHistory = loadInputHistory();
-
-    while (true) {
-        const input = await promptInput(inputHistory, () => clipboardHasImage());
-
-        // Handle Ctrl+V clipboard paste
-        if (input === CLIPBOARD_PASTE_SIGNAL) {
-            const clipResult = loadImageFromClipboard();
-            if (!clipResult) {
-                printError('No image found on clipboard. Copy an image first, then press Ctrl+V');
-                continue;
-            }
-            printImageAttachment(clipResult.fileName);
-            const pasteMsg = await promptUser('  message (optional) ❯ ') || 'Describe this image.';
-            const pasteContent: MessageContent[] = [
-                { type: 'text', text: pasteMsg },
-                clipResult.image,
-            ];
-            await processMessage(pasteContent);
-            continue;
-        }
-
-        if (!input) continue;
-
-        // Track input history (persist across sessions)
-        inputHistory = appendToHistory(inputHistory, input);
-        saveInputHistory(inputHistory);
-
-        // Handle slash commands
-        if (input.startsWith('/')) {
-            const parts = input.slice(1).split(' ');
-            const cmd = parts[0].toLowerCase();
-            const args = parts.slice(1);
-
-            switch (cmd) {
-                case 'quit':
-                case 'exit':
-                case 'q':
-                    console.log('\n  ' + chalk.hex('#7C3AED').bold('◆') + chalk.dim('  see you later\n'));
-                    saveSession(session);
-                    await disconnectMCPServers(mcpConnections);
-                    killBackgroundProcesses();
-                    process.exit(0);
-                    break;
-
-                case 'help':
-                case 'h':
-                    printHelp();
-                    break;
-
-                case 'clear':
-                    conversationHistory = [];
-                    session.messages = [];
-                    printInfo('conversation cleared');
-                    break;
-
-                case 'plan':
-                    currentMode = 'plan';
-                    printInfo('mode → plan  (read-only)');
-                    break;
-
-                case 'exec':
-                    currentMode = 'exec';
-                    printInfo('mode → exec  (autonomous)');
-                    break;
-
-                case 'chat':
-                    currentMode = 'chat';
-                    printInfo('mode → chat  (conversational)');
-                    break;
-
-                // ─── /model commands ───
-                case 'model': {
-                    const subcmd = args[0];
-                    if (subcmd === 'add') {
-                        await addModelInteractive();
-                    } else if (subcmd === 'list' || !subcmd) {
-                        const models = listModels();
-                        if (models.length === 0) {
-                            console.log(chalk.dim('  No models. Use /model add'));
-                        } else {
-                            for (const m of models) {
-                                const badge = m.isDefault ? chalk.green(' ★') : '';
-                                console.log(chalk.dim(`  ${chalk.cyan(m.name)}${badge} — ${m.provider}/${m.model} (${m.baseUrl})`));
-                            }
-                        }
-                    } else if (subcmd === 'remove' && args[1]) {
-                        if (removeModel(args[1])) {
-                            console.log(chalk.green(`  ✓ Removed "${args[1]}"`));
-                        } else {
-                            console.log(chalk.red(`  ✗ Not found: "${args[1]}"`));
-                        }
-                    } else if (subcmd === 'default' && args[1]) {
-                        if (setDefaultModel(args[1])) {
-                            console.log(chalk.green(`  ✓ Default set to "${args[1]}"`));
-                        } else {
-                            console.log(chalk.red(`  ✗ Not found: "${args[1]}"`));
-                        }
-                    } else if (subcmd === 'use' && args[1]) {
-                        const m = getModel(args[1]);
-                        if (m) {
-                            config.provider = {
-                                type: (m.provider === 'ollama' || m.provider === 'lmstudio' || m.provider === 'custom') ? 'local' : m.provider as 'openai' | 'anthropic',
-                                apiKey: m.apiKey,
-                                baseUrl: m.baseUrl,
-                                model: m.model,
-                                maxTokens: m.maxTokens,
-                            };
-                            provider = createProvider(config.provider);
-                            console.log(chalk.green(`  ✓ Switched to "${args[1]}" (${m.provider}/${m.model})`));
-                        } else {
-                            console.log(chalk.red(`  ✗ Not found: "${args[1]}"`));
-                        }
-                    } else {
-                        console.log(chalk.dim('  Usage: /model [add|list|remove <name>|default <name>|use <name>]'));
-                    }
-                    break;
-                }
-
-                // ─── /mcp commands ───
-                case 'mcp': {
-                    const subcmd = args[0];
-                    if (subcmd === 'add' && args[1] && args[2]) {
-                        const serverName = args[1];
-                        const command = args[2];
-                        const serverArgs = args.slice(3);
-                        addMcpServer(serverName, { command, args: serverArgs.length > 0 ? serverArgs : undefined });
-                        console.log(chalk.green(`  ✓ Added MCP server "${serverName}"`));
-                        console.log(chalk.dim('  Restart to connect, or use `deepa mcp list` to verify.'));
-                    } else if (subcmd === 'add-remote' && args[1] && args[2]) {
-                        const serverName = args[1];
-                        const url = args[2];
-                        const transport = args[3] as 'sse' | 'http' | undefined;
-                        addMcpServer(serverName, { url, transport });
-                        console.log(chalk.green(`  ✓ Added remote MCP server "${serverName}" at ${url}${transport ? ` (${transport})` : ''}`));
-                        console.log(chalk.dim('  Restart to connect, or use `deepa mcp list` to verify.'));
-                    } else if (subcmd === 'remove' && args[1]) {
-                        if (removeMcpServer(args[1])) {
-                            console.log(chalk.green(`  ✓ Removed "${args[1]}"`));
-                        } else {
-                            console.log(chalk.red(`  ✗ Not found: "${args[1]}"`));
-                        }
-                    } else if (subcmd === 'list' || !subcmd) {
-                        const servers = listMcpServers();
-                        const names = Object.keys(servers);
-                        if (names.length === 0) {
-                            console.log(chalk.dim('  No MCP servers. Use /mcp add <name> <command> [args...]'));
-                        } else {
-                            for (const n of names) {
-                                const s = servers[n];
-                                if (s.url) {
-                                    console.log(chalk.dim(`  ${chalk.cyan(n)} — Remote: ${s.url}`));
-                                } else {
-                                    console.log(chalk.dim(`  ${chalk.cyan(n)} — ${s.command} ${(s.args || []).join(' ')}`));
-                                }
-                            }
-                        }
-                        // Show connected
-                        if (mcpConnections.length > 0) {
-                            console.log(chalk.dim(`\n  Connected: ${mcpConnections.map(c => c.name).join(', ')}`));
-                        }
-                    } else {
-                        console.log(chalk.dim('  Usage: /mcp [add <name> <cmd> [args]|add-remote <name> <url> [transport]|remove <name>|list]'));
-                    }
-                    break;
-                }
-
-                case 'autonomy':
-                    if (args[0] && ['low', 'medium', 'high'].includes(args[0])) {
-                        config.autonomy = args[0] as 'low' | 'medium' | 'high';
-                        printInfo(`autonomy → ${args[0]}`);
-                    } else {
-                        printInfo(`autonomy: ${config.autonomy}  ·  options: low · medium · high`);
-                    }
-                    break;
-
-                case 'agents':
-                    if (agentRegistry.size > 0) {
-                        console.log(chalk.bold('\n  Available Agents:\n'));
-                        for (const agent of agentRegistry.list()) {
-                            const toolInfo = agent.tools ? agent.tools.join(', ') : 'all tools';
-                            console.log(`  ${chalk.hex('#818CF8')('◆')} ${chalk.cyan.bold(agent.name)}  ${chalk.dim(`[${agent.model} · ${toolInfo}]`)}`);
-                            if (agent.description) {
-                                console.log(chalk.dim(`    ${agent.description}`));
-                            }
-                            console.log('');
-                        }
-                    } else {
-                        console.log(chalk.dim('  No agents loaded. Add .md files to .deepa/agents/'));
-                    }
-                    break;
-
-                case 'skills':
-                    if (skillRegistry.size > 0) {
-                        console.log(chalk.bold('\n  Available Skills:\n'));
-                        for (const skill of skillRegistry.list()) {
-                            console.log(`  ${chalk.hex('#F59E0B')('⚡')} ${chalk.cyan.bold(skill.name)}`);
-                            if (skill.description) {
-                                console.log(chalk.dim(`    ${skill.description}`));
-                            }
-                            console.log('');
-                        }
-                    } else {
-                        console.log(chalk.dim('  No skills loaded. Add SKILL.md files to .deepa/skills/ or .agents/skills/'));
-                    }
-                    break;
-
-                case 'memory': {
-                    const currentMemory = loadMemory(cwd);
-                    if (currentMemory) {
-                        console.log(chalk.dim('\n  Memory entries:'));
-                        console.log(chalk.dim(`  ${currentMemory.split('\n').join('\n  ')}`));
-                    } else {
-                        console.log(chalk.dim('  No memory entries.'));
-                    }
-                    break;
-                }
-
-                case 'session':
-                    console.log(chalk.dim(`  Session: ${session.id}`));
-                    console.log(chalk.dim(`  Messages: ${conversationHistory.length}`));
-                    console.log(chalk.dim(`  Created: ${session.createdAt}`));
-                    break;
-
-                case 'compact':
-                    if (conversationHistory.length > 4) {
-                        const kept = conversationHistory.slice(-4);
-                        conversationHistory = kept;
-                        session.messages = kept;
-                        saveSession(session);
-                        printInfo(`compacted  ·  kept last ${kept.length} messages`);
-                    } else {
-                        printInfo('history already compact');
-                    }
-                    break;
-
-                case 'image': {
-                    const imgPath = args.join(' ').trim();
-                    if (!imgPath) {
-                        printError('Usage: /image <path-to-image> [message]');
-                        break;
-                    }
-                    // Split: first arg is path, rest is message
-                    const imgFilePath = args[0];
-                    const imgMessage = args.slice(1).join(' ') || 'Describe this image.';
-                    const imgResult = loadImageAsBase64(imgFilePath, cwd);
-                    if (!imgResult) {
-                        printError(`Cannot load image: ${imgFilePath}`);
-                        break;
-                    }
-                    if (imgResult.warning) printInfo(imgResult.warning);
-                    printImageAttachment(imgFilePath);
-                    const imgContent: MessageContent[] = [
-                        { type: 'text', text: imgMessage },
-                        imgResult.image,
-                    ];
-                    await processMessage(imgContent);
-                    break;
-                }
-
-                case 'paste': {
-                    if (!clipboardHasImage()) {
-                        printError('No image found on clipboard. Copy an image first (e.g., screenshot), then try /paste');
-                        break;
-                    }
-                    const clipResult = loadImageFromClipboard();
-                    if (!clipResult) {
-                        printError('Failed to read image from clipboard');
-                        break;
-                    }
-                    printImageAttachment(clipResult.fileName);
-                    const pasteMsg = args.join(' ').trim() || 'Describe this image.';
-                    const pasteContent: MessageContent[] = [
-                        { type: 'text', text: pasteMsg },
-                        clipResult.image,
-                    ];
-                    await processMessage(pasteContent);
-                    break;
-                }
-
-                default:
-                    printInfo(`unknown command: /${cmd}  ·  /help for available commands`);
-            }
-            continue;
-        }
-
-        // Auto-detect image paths in user input
-        const { text: textPart, paths: imagePaths } = extractImagePaths(input);
-        if (imagePaths.length > 0) {
-            const contentParts: MessageContent[] = [];
-            if (textPart) {
-                contentParts.push({ type: 'text', text: textPart });
-            } else {
-                contentParts.push({ type: 'text', text: 'Describe this image.' });
-            }
-            let hasImages = false;
-            for (const imgPath of imagePaths) {
-                const imgResult = loadImageAsBase64(imgPath, cwd);
-                if (imgResult) {
-                    if (imgResult.warning) printInfo(imgResult.warning);
-                    printImageAttachment(imgPath);
-                    contentParts.push(imgResult.image);
-                    hasImages = true;
-                } else {
-                    printError(`Cannot load image: ${imgPath}`);
-                }
-            }
-            if (hasImages) {
-                await processMessage(contentParts);
-                continue;
-            }
-        }
-
-        await processMessage(input);
-    }
+    // Cleanup when Ink exits — session already flushed by registerSessionCleanup on exit signals
+    saveSession(session); // Final full-sync write for clean exits
+    await disconnectMCPServers(mcpConnections);
+    killBackgroundProcesses();
 }
 
 // ────────────────── Entry ──────────────────

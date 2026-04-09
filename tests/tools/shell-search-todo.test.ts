@@ -15,6 +15,8 @@ function makeContext(): ToolContext {
         autonomy: 'high',
         confirmAction: async () => true,
         log: () => { },
+        readFileState: new Map(),
+        messages: [],
     };
 }
 
@@ -41,7 +43,7 @@ describe('Shell Tool', () => {
     it('reports non-zero exit code', async () => {
         const result = await shellTool.execute({ command: 'exit 1' }, makeContext());
         expect(result.isError).toBe(true);
-        expect(result.content).toContain('Exit code: 1');
+        expect(result.content).toContain('Command failed with exit code 1');
     });
 
     it('respects cwd parameter', async () => {

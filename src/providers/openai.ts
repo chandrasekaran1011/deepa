@@ -169,15 +169,25 @@ export class OpenAIProvider implements LLMProvider {
         options?: ChatOptions,
         signal?: AbortSignal,
     ): AsyncIterable<StreamChunk> {
+        const isStrictOpenAI = this.config.baseUrl.includes('api.openai.com');
+        const isAzure = this.config.baseUrl.includes('.openai.azure.com') || this.config.baseUrl.includes('.cognitiveservices.azure.com');
+        const useReasoningEffort = !!(options?.reasoningEffort && !this.config.isLocal);
+
+        // OpenAI Responses API: required when using reasoning_effort with function tools
+        // on api.openai.com (newer models like gpt-5.4, o3, o4-mini reject it on /chat/completions)
+        const useResponsesAPI = useReasoningEffort && isStrictOpenAI && tools && tools.length > 0;
+
+        if (useResponsesAPI) {
+            yield* this.chatViaResponsesAPI(messages, tools, options, signal);
+            return;
+        }
+
         const maxTokens = options?.maxTokens ?? this.config.maxTokens;
         const body: Record<string, unknown> = {
             model: this.config.model,
             messages: this.convertMessages(messages),
             stream: true,
         };
-
-        const isStrictOpenAI = this.config.baseUrl.includes('api.openai.com');
-        const isAzure = this.config.baseUrl.includes('.openai.azure.com') || this.config.baseUrl.includes('.cognitiveservices.azure.com');
 
         if (this.config.useMaxCompletionTokens || isAzure || (!this.config.isLocal && isStrictOpenAI)) {
             // Force max_completion_tokens, OR it's a strict openai.com endpoint that requires it
@@ -189,8 +199,8 @@ export class OpenAIProvider implements LLMProvider {
         }
 
         // reasoning_effort for OpenAI o-series models (o1, o3, o4-mini, etc.)
-        if (options?.reasoningEffort && !this.config.isLocal) {
-            body.reasoning_effort = options.reasoningEffort;
+        if (useReasoningEffort) {
+            body.reasoning_effort = options!.reasoningEffort;
         }
 
         if (options?.temperature !== undefined) body.temperature = options.temperature;
@@ -384,6 +394,289 @@ export class OpenAIProvider implements LLMProvider {
             }
             yield { type: 'done' };
         }
+    }
+
+    /**
+     * OpenAI Responses API (/v1/responses) — required for newer models (gpt-5.4, o3, o4-mini, etc.)
+     * when using reasoning_effort with function tools.
+     * See: https://platform.openai.com/docs/api-reference/responses
+     */
+    private async *chatViaResponsesAPI(
+        messages: Message[],
+        tools: ToolDefinition[],
+        options?: ChatOptions,
+        signal?: AbortSignal,
+    ): AsyncIterable<StreamChunk> {
+        const maxTokens = options?.maxTokens ?? this.config.maxTokens;
+
+        // Convert messages to Responses API input format
+        const input = this.convertMessagesToResponsesInput(messages);
+
+        const body: Record<string, unknown> = {
+            model: this.config.model,
+            input,
+            stream: true,
+        };
+
+        if (maxTokens) body.max_output_tokens = maxTokens;
+        if (options?.reasoningEffort) body.reasoning = { effort: options.reasoningEffort };
+        if (options?.temperature !== undefined) body.temperature = options.temperature;
+        if (options?.topP !== undefined) body.top_p = options.topP;
+
+        if (tools.length > 0) {
+            body.tools = tools.map((t) => ({
+                type: 'function',
+                name: t.name,
+                description: t.description,
+                parameters: t.parameters,
+            }));
+        }
+
+        const endpointUrl = `${this.config.baseUrl}/responses`;
+
+        let response: Response;
+        try {
+            response = await fetchWithRetry(endpointUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${this.config.apiKey}`,
+                },
+                body: JSON.stringify(body),
+                signal,
+            });
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            yield { type: 'error', error: `Network error connecting to ${this.config.baseUrl}: ${msg}` };
+            return;
+        }
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            yield { type: 'error', error: `OpenAI Responses API error ${response.status}: ${errorText}` };
+            return;
+        }
+
+        if (!response.body) {
+            yield { type: 'error', error: 'No response body' };
+            return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        // Collect function call arguments across streamed deltas
+        const pendingFnCalls = new Map<string, { id: string; name: string; arguments: string }>();
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // SSE format: "event: <type>\ndata: <json>\n\n"
+                // Split on double-newline to get complete SSE blocks
+                const blocks = buffer.split('\n\n');
+                buffer = blocks.pop() || ''; // keep incomplete block
+
+                for (const block of blocks) {
+                    const lines = block.split('\n');
+                    let eventType = '';
+                    let dataStr = '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            eventType = line.slice(7).trim();
+                        } else if (line.startsWith('data: ')) {
+                            dataStr += line.slice(6);
+                        }
+                    }
+
+                    if (!dataStr) continue;
+
+                    let data: any;
+                    try {
+                        data = JSON.parse(dataStr);
+                    } catch {
+                        continue;
+                    }
+
+                    // Handle different Responses API event types
+                    switch (eventType) {
+                        case 'response.output_text.delta': {
+                            // Streaming text delta
+                            const text = data.delta;
+                            if (text) {
+                                yield { type: 'text', text };
+                            }
+                            break;
+                        }
+
+                        case 'response.function_call_arguments.delta': {
+                            // Streaming function call arguments
+                            const itemId = data.item_id;
+                            if (itemId) {
+                                const existing = pendingFnCalls.get(itemId);
+                                if (existing) {
+                                    existing.arguments += data.delta || '';
+                                }
+                            }
+                            break;
+                        }
+
+                        case 'response.output_item.added': {
+                            // New output item — could be a function_call
+                            const item = data.item;
+                            if (item?.type === 'function_call') {
+                                pendingFnCalls.set(item.id, {
+                                    id: item.call_id || item.id,
+                                    name: item.name || '',
+                                    arguments: item.arguments || '',
+                                });
+                            }
+                            break;
+                        }
+
+                        case 'response.function_call_arguments.done': {
+                            // Function call arguments complete — emit tool_call
+                            const itemId = data.item_id;
+                            const fn = pendingFnCalls.get(itemId);
+                            if (fn) {
+                                yield {
+                                    type: 'tool_call',
+                                    id: fn.id,
+                                    name: fn.name,
+                                    arguments: fn.arguments,
+                                };
+                                pendingFnCalls.delete(itemId);
+                            }
+                            break;
+                        }
+
+                        case 'response.completed': {
+                            // Final event with usage
+                            const usage = data.response?.usage;
+                            yield {
+                                type: 'done',
+                                usage: usage ? {
+                                    promptTokens: usage.input_tokens ?? 0,
+                                    completionTokens: usage.output_tokens ?? 0,
+                                } : undefined,
+                            };
+                            return;
+                        }
+
+                        case 'response.failed':
+                        case 'response.incomplete': {
+                            const errMsg = data.response?.status_details?.error?.message
+                                || data.response?.incomplete_details?.reason
+                                || 'Unknown error';
+                            yield { type: 'error', error: `OpenAI Responses API: ${errMsg}` };
+                            return;
+                        }
+
+                        // Ignore: response.created, response.in_progress,
+                        // response.output_text.done, response.content_part.added/done, etc.
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
+
+        // If we exit the loop without response.completed, emit done
+        yield { type: 'done' };
+    }
+
+    /**
+     * Convert internal messages to OpenAI Responses API input format.
+     * The Responses API uses a flat array of message objects with different roles.
+     */
+    private convertMessagesToResponsesInput(messages: Message[]): unknown[] {
+        const input: unknown[] = [];
+
+        // Responses API requires IDs starting with "fc_" for function_call items.
+        // Chat completions uses "call_" prefix. Remap consistently so call_id references match.
+        const idMap = new Map<string, string>();
+        const toFcId = (chatId: string): string => {
+            if (chatId.startsWith('fc_')) return chatId;
+            if (idMap.has(chatId)) return idMap.get(chatId)!;
+            const fcId = 'fc_' + chatId.replace(/^call_/, '');
+            idMap.set(chatId, fcId);
+            return fcId;
+        };
+
+        for (const msg of messages) {
+            if (msg.role === 'system') {
+                const text = typeof msg.content === 'string'
+                    ? msg.content
+                    : (msg.content as MessageContent[]).filter((c): c is TextContent => c.type === 'text').map(t => t.text).join('\n');
+                input.push({ role: 'developer', content: text });
+                continue;
+            }
+
+            if (msg.role === 'user') {
+                if (typeof msg.content === 'string') {
+                    input.push({ role: 'user', content: msg.content });
+                } else {
+                    const parts: unknown[] = [];
+                    for (const c of msg.content as MessageContent[]) {
+                        if (c.type === 'text') {
+                            parts.push({ type: 'input_text', text: (c as TextContent).text });
+                        } else if (c.type === 'image') {
+                            const img = c as ImageContent;
+                            parts.push({
+                                type: 'input_image',
+                                image_url: `data:${img.source.mediaType};base64,${img.source.data}`,
+                            });
+                        }
+                    }
+                    input.push({ role: 'user', content: parts });
+                }
+                continue;
+            }
+
+            if (msg.role === 'assistant') {
+                const contents = typeof msg.content === 'string'
+                    ? [{ type: 'text' as const, text: msg.content }]
+                    : msg.content as MessageContent[];
+
+                for (const c of contents) {
+                    if (c.type === 'text' && (c as TextContent).text) {
+                        input.push({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: (c as TextContent).text }] });
+                    } else if (c.type === 'tool_call') {
+                        const tc = c as ToolCallContent;
+                        const fcId = toFcId(tc.id);
+                        input.push({
+                            type: 'function_call',
+                            id: fcId,
+                            call_id: fcId,
+                            name: tc.name,
+                            arguments: JSON.stringify(tc.arguments),
+                        });
+                    }
+                }
+                continue;
+            }
+
+            if (msg.role === 'tool') {
+                const contents = msg.content as MessageContent[];
+                for (const c of contents) {
+                    if (c.type === 'tool_result') {
+                        const tr = c as ToolResultContent;
+                        input.push({
+                            type: 'function_call_output',
+                            call_id: toFcId(tr.toolCallId),
+                            output: tr.content || '',
+                        });
+                    }
+                }
+            }
+        }
+
+        return input;
     }
 
     private convertMessages(messages: Message[]): unknown[] {

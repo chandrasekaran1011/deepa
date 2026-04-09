@@ -16,7 +16,14 @@ function makeContext(): ToolContext {
         autonomy: 'high',
         confirmAction: async () => true,
         log: () => { },
+        readFileState: new Map(),
+        messages: [],
     };
+}
+
+/** Helper: read a file first so edit/write validation passes */
+async function readFirst(path: string, ctx: ToolContext) {
+    await fileReadTool.execute({ path }, ctx);
 }
 
 describe('File Tools', () => {
@@ -76,9 +83,11 @@ describe('File Tools', () => {
 
         it('overwrites an existing file', async () => {
             writeFileSync(join(TEST_DIR, 'old.txt'), 'old content');
+            const ctx = makeContext();
+            await readFirst('old.txt', ctx);
             const result = await fileWriteTool.execute(
                 { path: 'old.txt', content: 'new content' },
-                makeContext(),
+                ctx,
             );
             expect(result.content).toContain('Updated');
             expect(readFileSync(join(TEST_DIR, 'old.txt'), 'utf-8')).toBe('new content');
@@ -94,9 +103,11 @@ describe('File Tools', () => {
 
         it('shows old vs new line count on overwrite', async () => {
             writeFileSync(join(TEST_DIR, 'old.txt'), 'a\nb\nc');
+            const ctx = makeContext();
+            await readFirst('old.txt', ctx);
             const result = await fileWriteTool.execute(
                 { path: 'old.txt', content: 'x\ny\nz\nw\nv' },
-                makeContext(),
+                ctx,
             );
             expect(result.content).toContain('was 3 lines');
             expect(result.content).toContain('now 5 lines');
@@ -119,9 +130,11 @@ describe('File Tools', () => {
 
         it('appends to an existing file', async () => {
             writeFileSync(join(TEST_DIR, 'chunk.txt'), 'line1\nline2\n');
+            const ctx = makeContext();
+            await readFirst('chunk.txt', ctx);
             const result = await fileWriteTool.execute(
                 { path: 'chunk.txt', content: 'line3\nline4\n', append: true },
-                makeContext(),
+                ctx,
             );
             expect(result.isError).toBeUndefined();
             expect(result.content).toContain('Appended');
@@ -139,20 +152,21 @@ describe('File Tools', () => {
         });
 
         it('supports multi-chunk write workflow', async () => {
+            const ctx = makeContext();
             // Chunk 1: create file
             await fileWriteTool.execute(
                 { path: 'big.ts', content: 'const a = 1;\n' },
-                makeContext(),
+                ctx,
             );
-            // Chunk 2: append
+            // Chunk 2: append (readFileState already set by the write above)
             await fileWriteTool.execute(
                 { path: 'big.ts', content: 'const b = 2;\n', append: true },
-                makeContext(),
+                ctx,
             );
             // Chunk 3: append
             const result = await fileWriteTool.execute(
                 { path: 'big.ts', content: 'export { a, b };\n', append: true },
-                makeContext(),
+                ctx,
             );
             expect(result.content).toContain('total now 4 lines');
             expect(readFileSync(join(TEST_DIR, 'big.ts'), 'utf-8')).toBe(
@@ -177,9 +191,11 @@ describe('File Tools', () => {
     describe('file_edit', () => {
         it('replaces unique occurrence', async () => {
             writeFileSync(join(TEST_DIR, 'edit.txt'), 'foo bar baz');
+            const ctx = makeContext();
+            await readFirst('edit.txt', ctx);
             const result = await fileEditTool.execute(
                 { path: 'edit.txt', search: 'bar', replace: 'qux' },
-                makeContext(),
+                ctx,
             );
             expect(result.content).toContain('replaced 1');
             expect(readFileSync(join(TEST_DIR, 'edit.txt'), 'utf-8')).toBe('foo qux baz');
@@ -187,9 +203,11 @@ describe('File Tools', () => {
 
         it('rejects ambiguous match when replaceAll is false', async () => {
             writeFileSync(join(TEST_DIR, 'edit.txt'), 'foo bar foo');
+            const ctx = makeContext();
+            await readFirst('edit.txt', ctx);
             const result = await fileEditTool.execute(
                 { path: 'edit.txt', search: 'foo', replace: 'baz' },
-                makeContext(),
+                ctx,
             );
             expect(result.isError).toBe(true);
             expect(result.content).toContain('2 occurrences');
@@ -200,9 +218,11 @@ describe('File Tools', () => {
 
         it('replaces all occurrences with replaceAll', async () => {
             writeFileSync(join(TEST_DIR, 'edit.txt'), 'foo bar foo');
+            const ctx = makeContext();
+            await readFirst('edit.txt', ctx);
             const result = await fileEditTool.execute(
                 { path: 'edit.txt', search: 'foo', replace: 'baz', replaceAll: true },
-                makeContext(),
+                ctx,
             );
             expect(result.content).toContain('replaced 2');
             expect(readFileSync(join(TEST_DIR, 'edit.txt'), 'utf-8')).toBe('baz bar baz');
@@ -210,9 +230,11 @@ describe('File Tools', () => {
 
         it('shows context around the edit', async () => {
             writeFileSync(join(TEST_DIR, 'ctx.txt'), 'line1\nline2\nline3\nline4\nline5');
+            const ctx = makeContext();
+            await readFirst('ctx.txt', ctx);
             const result = await fileEditTool.execute(
                 { path: 'ctx.txt', search: 'line3', replace: 'CHANGED' },
-                makeContext(),
+                ctx,
             );
             expect(result.isError).toBeUndefined();
             expect(result.content).toContain('Context after edit');
@@ -221,9 +243,11 @@ describe('File Tools', () => {
 
         it('returns error when search text not found', async () => {
             writeFileSync(join(TEST_DIR, 'edit.txt'), 'hello');
+            const ctx = makeContext();
+            await readFirst('edit.txt', ctx);
             const result = await fileEditTool.execute(
                 { path: 'edit.txt', search: 'xyz', replace: 'abc' },
-                makeContext(),
+                ctx,
             );
             expect(result.isError).toBe(true);
             expect(result.content).toContain('not found');

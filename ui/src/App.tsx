@@ -5,6 +5,8 @@ import { SettingsBar } from './components/SettingsBar';
 import { SessionPanel } from './components/SessionPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { BottomControls } from './components/BottomControls';
+import { SlashCommandPicker, SLASH_COMMANDS, getSlashQuery } from './components/SlashCommandPicker';
+import type { SlashCommand } from './components/SlashCommandPicker';
 import { useAgent } from './hooks/useAgent';
 
 interface Attachment {
@@ -15,13 +17,16 @@ interface Attachment {
 }
 
 function App() {
-  const { messages, sendMessage, isProcessing, error, stopProcessing, sessionId, newSession, loadSession, pendingConfirmation, respondToConfirmation } = useAgent();
+  const { messages, sendMessage, isProcessing, error, stopProcessing, sessionId, newSession, loadSession, pendingConfirmation, respondToConfirmation, tokenUsage } = useAgent();
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsRefreshKey, setSettingsRefreshKey] = useState(0);
+  // Slash command picker state
+  const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +40,14 @@ function App() {
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  // Auto-resize textarea to fit content
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 320)}px`;
+  }, [input]);
 
   const addAttachment = useCallback((file: File, type: 'image' | 'file') => {
     if (attachments.length >= 5) return;
@@ -66,7 +79,58 @@ function App() {
     setAttachments([]);
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setInput(val);
+    const q = getSlashQuery(val);
+    setSlashQuery(q);
+    setSlashIndex(0);
+  };
+
+  const filteredCommands = slashQuery !== null
+    ? SLASH_COMMANDS.filter(cmd => {
+        const q = slashQuery.toLowerCase();
+        return !q || cmd.command.toLowerCase().includes(q) || cmd.description.toLowerCase().includes(q) || (cmd.group?.toLowerCase().includes(q) ?? false);
+      })
+    : [];
+
+  const handleSlashSelect = (cmd: SlashCommand) => {
+    // Replace the last line (which starts with /) with the chosen command + a space
+    const lines = input.split('\n');
+    lines[lines.length - 1] = cmd.usage ?? cmd.command;
+    // Add trailing space so user can keep typing args
+    const newVal = lines.join('\n') + ' ';
+    setInput(newVal);
+    setSlashQuery(null);
+    setSlashIndex(0);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // When slash picker is open, hijack Up/Down/Enter/Esc
+    if (slashQuery !== null && filteredCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex(i => (i + 1) % filteredCommands.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex(i => (i - 1 + filteredCommands.length) % filteredCommands.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        handleSlashSelect(filteredCommands[slashIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSlashQuery(null);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -207,17 +271,28 @@ function App() {
               className="hidden"
             />
 
-            {/* Input */}
+            {/* Input + Slash Picker */}
             <div className="flex-1 relative">
+              {/* Slash command picker — floats above the textarea */}
+              {slashQuery !== null && filteredCommands.length > 0 && (
+                <SlashCommandPicker
+                  query={slashQuery}
+                  selectedIndex={slashIndex}
+                  onSelect={handleSlashSelect}
+                  onClose={() => setSlashQuery(null)}
+                />
+              )}
+
               <textarea
                 ref={textareaRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                placeholder={isProcessing ? 'Queue another message...' : 'Message Deepa...'}
-                className="w-full max-h-32 min-h-[44px] py-3 px-4 pr-12 bg-[var(--bg-input)] border border-[var(--border)] rounded-xl resize-none focus:outline-none focus:border-[var(--accent)]/50 text-[var(--text)] placeholder:text-[var(--text-muted)] text-sm transition-colors"
+                placeholder={isProcessing ? 'Queue another message...' : 'Message Deepa... (type / for commands)'}
+                className="w-full min-h-[52px] py-3 px-4 bg-[var(--bg-input)] border border-[var(--border)] rounded-xl resize-none focus:outline-none focus:border-[var(--accent)]/50 text-[var(--text)] placeholder:text-[var(--text-muted)] text-sm transition-colors leading-relaxed"
                 rows={1}
+                style={{ overflowY: 'auto' }}
               />
             </div>
 
@@ -237,7 +312,7 @@ function App() {
                 type="submit"
                 disabled={!input.trim() && attachments.length === 0}
                 className="w-9 h-9 flex items-center justify-center rounded-lg bg-[var(--accent)] text-white hover:bg-[var(--accent)]/80 transition-colors shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Send message"
+                title="Send message (Enter) · New line (Shift+Enter)"
               >
                 <ArrowUp size={16} strokeWidth={2.5} />
               </button>
@@ -247,6 +322,7 @@ function App() {
           <BottomControls
             onToggleSettings={() => { setShowSettings(!showSettings); setShowSessions(false); }}
             refreshKey={settingsRefreshKey}
+            tokenUsage={tokenUsage}
           />
         </div>
       </div>

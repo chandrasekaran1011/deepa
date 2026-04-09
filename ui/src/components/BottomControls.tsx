@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronUp, Settings } from 'lucide-react';
+import { ChevronUp, Settings, Sun, Moon, Monitor } from 'lucide-react';
+import type { TokenUsage } from '../hooks/useAgent';
 
 interface ModelInfo {
     name: string;
@@ -12,14 +13,17 @@ interface ServerStatus {
     model: string;
     provider: string;
     autonomy: string;
+    mode: string;
+    reasoning: string;
 }
 
 interface BottomControlsProps {
     onToggleSettings?: () => void;
     refreshKey?: number;
+    tokenUsage?: TokenUsage;
 }
 
-export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings, refreshKey }) => {
+export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings, refreshKey, tokenUsage }) => {
     const [models, setModels] = useState<ModelInfo[]>([]);
     const [status, setStatus] = useState<ServerStatus | null>(null);
     const [showModelDropdown, setShowModelDropdown] = useState(false);
@@ -84,10 +88,58 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
         }
     };
 
+    const setMode = async (mode: string) => {
+        try {
+            const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode }),
+            });
+            if (res.ok) {
+                await fetchStatus();
+            }
+        } catch {
+            // ignore
+        }
+    };
+
+    const setReasoning = async (level: string) => {
+        try {
+            const res = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reasoning: level }),
+            });
+            if (res.ok) {
+                await fetchStatus();
+            }
+        } catch {
+            // ignore
+        }
+    };
+
+    // Theme management — hooks must be before any conditional returns
+    const [theme, setTheme] = useState<'dark' | 'light' | 'auto'>(() => {
+        return (localStorage.getItem('deepa-theme') as 'dark' | 'light' | 'auto') || 'dark';
+    });
+
+    useEffect(() => {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('deepa-theme', theme);
+    }, [theme]);
+
     if (!status) return null;
 
+    const totalTokens = tokenUsage ? tokenUsage.totalPromptTokens + tokenUsage.totalCompletionTokens : 0;
+
+    const cycleTheme = () => {
+        setTheme(t => t === 'dark' ? 'light' : t === 'light' ? 'auto' : 'dark');
+    };
+
+    const ThemeIcon = theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor;
+
     return (
-        <div className="flex items-center justify-center gap-3 mt-1.5 text-xs">
+        <div className="flex items-center justify-center gap-2 mt-1.5 text-xs flex-wrap">
             {/* Model selector */}
             <div className="relative">
                 <button
@@ -119,22 +171,92 @@ export const BottomControls: React.FC<BottomControlsProps> = ({ onToggleSettings
                 )}
             </div>
 
-            {/* Autonomy toggle */}
-            <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden">
-                {['low', 'medium', 'high'].map((level) => (
-                    <button
-                        key={level}
-                        onClick={() => setAutonomy(level)}
-                        className={`px-2 py-1 transition-colors ${
-                            status.autonomy === level
-                                ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
-                                : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-                        }`}
-                    >
-                        {level}
-                    </button>
-                ))}
+            {/* Separator */}
+            <span className="text-[var(--border)]">·</span>
+
+            {/* Mode toggle — labeled */}
+            <div className="flex items-center gap-1">
+                <span className="text-[var(--text-muted)] font-medium uppercase tracking-wider text-[10px]">Mode</span>
+                <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden">
+                    {['chat', 'plan', 'exec'].map((m) => (
+                        <button
+                            key={m}
+                            onClick={() => setMode(m)}
+                            className={`px-2 py-1 transition-colors ${
+                                status.mode === m
+                                    ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
+                                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                            }`}
+                        >
+                            {m}
+                        </button>
+                    ))}
+                </div>
             </div>
+
+            <span className="text-[var(--border)]">·</span>
+
+            {/* Autonomy toggle — labeled */}
+            <div className="flex items-center gap-1">
+                <span className="text-[var(--text-muted)] font-medium uppercase tracking-wider text-[10px]">Autonomy</span>
+                <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden">
+                    {['low', 'medium', 'high'].map((level) => (
+                        <button
+                            key={level}
+                            onClick={() => setAutonomy(level)}
+                            className={`px-2 py-1 transition-colors ${
+                                status.autonomy === level
+                                    ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
+                                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                            }`}
+                            title={`Autonomy: ${level} — ${level === 'low' ? 'all actions need approval' : level === 'medium' ? 'risky actions need approval' : 'minimal approvals'}`}
+                        >
+                            {level}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <span className="text-[var(--border)]">·</span>
+
+            {/* Reasoning toggle — labeled */}
+            <div className="flex items-center gap-1">
+                <span className="text-[var(--text-muted)] font-medium uppercase tracking-wider text-[10px]">Reasoning</span>
+                <div className="flex items-center rounded bg-[var(--bg-input)] border border-[var(--border)] overflow-hidden">
+                    {['off', 'low', 'medium', 'high'].map((level) => (
+                        <button
+                            key={level}
+                            onClick={() => setReasoning(level)}
+                            className={`px-2 py-1 transition-colors ${
+                                status.reasoning === level
+                                    ? 'bg-[var(--accent)]/20 text-[var(--accent)] font-semibold'
+                                    : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                            }`}
+                            title={`Reasoning effort: ${level}`}
+                        >
+                            {level}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <span className="text-[var(--border)]">·</span>
+
+            {/* Theme toggle */}
+            <button
+                onClick={cycleTheme}
+                className="p-1 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+                title={`Theme: ${theme} (click to cycle)`}
+            >
+                <ThemeIcon size={13} />
+            </button>
+
+            {/* Token usage */}
+            {totalTokens > 0 && (
+                <span className="text-[var(--text-muted)]" title={`Prompt: ${tokenUsage!.totalPromptTokens.toLocaleString()} · Completion: ${tokenUsage!.totalCompletionTokens.toLocaleString()}`}>
+                    {totalTokens.toLocaleString()} tokens
+                </span>
+            )}
 
             {/* Settings gear */}
             {onToggleSettings && (
